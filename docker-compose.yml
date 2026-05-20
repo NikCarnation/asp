@@ -1,0 +1,87 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8002:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+
+  connector:
+    build:
+      context: .
+      dockerfile: Dockerfile.connector
+    ports:
+      - "8000:8000"
+    depends_on:
+      - rabbitmq
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+      RABBITMQ_QUEUE: aisoc_alerts
+      CONNECTOR_HOST: "0.0.0.0"
+      CONNECTOR_PORT: 8000
+      WAZUH_API_URL: ${WAZUH_API_URL:-http://wazuh:55000}
+      WAZUH_API_USER: ${WAZUH_API_USER:-wazuh-wui}
+      WAZUH_API_PASS: ${WAZUH_API_PASS:-wazuh-wui}
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    ports:
+      - "8001:8001"
+    depends_on:
+      - rabbitmq
+      - ollama
+      - chroma
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+      RABBITMQ_QUEUE: aisoc_alerts
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      SMALL_LLM_MODEL: ${SMALL_LLM_MODEL:-phi3:mini}
+      LARGE_LLM_MODEL: ${LARGE_LLM_MODEL:-llama3.1:8b}
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      CHROMA_COLLECTION: aisoc_playbooks
+      AGENT_HOST: "0.0.0.0"
+      AGENT_PORT: 8001
+      WAZUH_API_URL: ${WAZUH_API_URL:-http://wazuh:55000}
+      WAZUH_API_USER: ${WAZUH_API_USER:-wazuh-wui}
+      WAZUH_API_PASS: ${WAZUH_API_PASS:-wazuh-wui}
+
+volumes:
+  rabbitmq_data:
+  ollama_data:
+  chroma_data:
