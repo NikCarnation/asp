@@ -3,14 +3,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Query
+from agent.models.schemas import NormalizedAlert
 from connector.broker.rabbit import RabbitPublisher
 from connector.config import ConnectorConfig
 from connector.normalizer.ecs import normalize_wazuh_alert
 from connector.schemas import PublishBatchRequest, PublishRequest, SendPlanRequest
 from connector.siem_clients.base import SiemClient
-from connector.siem_clients.wazuh import WazuhClient
+from connector.siem_clients.indexer import IndexerClient
 from connector.webhook.listener import init_publisher, router as webhook_router
-from agent.models.schemas import NormalizedAlert
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +44,14 @@ async def lifespan(app: FastAPI):
         logger.info("RabbitMQ disabled by configuration (use_rabbitmq=False)")
         init_publisher(None, use_rmq=False)
 
-    if config.wazuh_mock:
-        logger.info("Using MockWazuhClient")
-    else:
-        logger.info("Using WazuhClient: %s", config.wazuh_api_url)
-        siem_client = WazuhClient(
-            api_url=config.wazuh_api_url,
-            api_user=config.wazuh_api_user,
-            api_pass=config.wazuh_api_pass,
-        )
+    logger.info("Using IndexerClient: %s", config.indexer_url)
+    siem_client = IndexerClient(
+        url=config.indexer_url,
+        user=config.indexer_user,
+        password=config.indexer_pass,
+        index_prefix=config.indexer_prefix,
+        verify_ssl=config.wazuh_verify_ssl,
+    )
 
     yield
 
@@ -77,15 +76,71 @@ async def get_alerts(
     offset: int = Query(default=0, ge=0),
     start_date: datetime | None = Query(default=None),
     end_date: datetime | None = Query(default=None),
+    source_ip: str | None = Query(default=None, description="Filter by source IP"),
+    destination_ip: str | None = Query(default=None, description="Filter by destination IP"),
+    rule_id: str | None = Query(default=None, description="Filter by rule ID"),
+    rule_level_min: int | None = Query(default=None, description="Minimum rule level"),
+    rule_level_max: int | None = Query(default=None, description="Maximum rule level"),
+    protocol: str | None = Query(default=None, description="Network protocol"),
+    user_name: str | None = Query(default=None, description="Filter by username"),
+    agent_id: str | None = Query(default=None, description="Filter by agent ID"),
+    agent_name: str | None = Query(default=None, description="Filter by agent name"),
+    location: str | None = Query(default=None, description="Log location"),
+    rule_groups: str | None = Query(default=None, description="Rule groups (comma-separated)"),
+    rule_description: str | None = Query(default=None, description="Search in rule description"),
+    full_log: str | None = Query(default=None, description="Search in full log"),
 ):
     if not siem_client:
         raise HTTPException(status_code=503, detail="SIEM client not initialized")
-    alerts = await siem_client.fetch_alerts(
-        limit=limit,
-        offset=offset,
-        start_date=start_date,
-        end_date=end_date,
-    )
+
+
+    args_list = [source_ip, destination_ip, rule_id, rule_description, rule_level_max, rule_level_min, protocol, agent_id, agent_name, full_log, location, user_name, rule_groups ]
+    filters = {}
+    # if source_ip is not None:
+    #     filters["source_ip"] = source_ip
+    # if destination_ip is not None:
+    #     filters["destination_ip"] = destination_ip
+    # if rule_id is not None:
+    #     filters["rule_id"] = rule_id
+    # if rule_level_min is not None:
+    #     filters["rule_level_min"] = rule_level_min
+    # if rule_level_max is not None:
+    #     filters["rule_level_max"] = rule_level_max
+    # if protocol is not None:
+    #     filters["protocol"] = protocol
+    # if user_name is not None:
+    #     filters["user_name"] = user_name
+    # if agent_id is not None:
+    #     filters["agent_id"] = agent_id
+    # if agent_name is not None:
+    #     filters["agent_name"] = agent_name
+    # if location is not None:
+    #     filters["location"] = location
+    # if rule_groups is not None:
+    #     filters["rule_groups"] = [g.strip() for g in rule_groups.split(",") if g.strip()]
+    # if rule_description is not None:
+    #     filters["rule_description"] = rule_description
+    # if full_log is not None:
+    #     filters["full_log"] = full_log
+        
+    for arg in args_list:
+        if arg is not None:
+            filters[f"{arg}"] = arg
+            if arg == rule_groups:
+                filters[f"{arg}"] = [g.strip() for g in rule_groups.split(",") if g.strip()]
+
+
+    try:
+        alerts = await siem_client.fetch_alerts(
+            limit=limit,
+            offset=offset,
+            start_date=start_date,
+            end_date=end_date,
+            filters=filters or None,
+        )
+    except Exception as e:
+        logger.error("Failed to fetch alerts: %s", e)
+        raise HTTPException(status_code=502, detail=f"SIEM API error: {e}")
     return {
         "alerts": [a.model_dump(mode="json") for a in alerts],
         "count": len(alerts),
@@ -98,7 +153,11 @@ async def get_alerts(
 async def get_alert(alert_id: str):
     if not siem_client:
         raise HTTPException(status_code=503, detail="SIEM client not initialized")
-    alert = await siem_client.get_alert_by_id(alert_id)
+    try:
+        alert = await siem_client.get_alert_by_id(alert_id)
+    except Exception as e:
+        logger.error("Failed to get alert %s: %s", alert_id, e)
+        raise HTTPException(status_code=502, detail=f"SIEM API error: {e}")
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return alert.model_dump(mode="json")
@@ -109,7 +168,11 @@ async def publish_alert(body: PublishRequest):
     if not siem_client:
         raise HTTPException(status_code=503, detail="Connector not initialized")
     
-    alert = await siem_client.get_alert_by_id(body.alert_id)
+    try:
+        alert = await siem_client.get_alert_by_id(body.alert_id)
+    except Exception as e:
+        logger.error("Failed to get alert %s: %s", body.alert_id, e)
+        raise HTTPException(status_code=502, detail=f"SIEM API error: {e}")
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     
@@ -130,7 +193,12 @@ async def publish_alerts_batch(body: PublishBatchRequest):
     published = []
     errors = []
     for alert_id in body.alert_ids:
-        alert = await siem_client.get_alert_by_id(alert_id)
+        try:
+            alert = await siem_client.get_alert_by_id(alert_id)
+        except Exception as e:
+            logger.error("Failed to get alert %s: %s", alert_id, e)
+            errors.append(alert_id)
+            continue
         if not alert:
             errors.append(alert_id)
             continue
@@ -153,12 +221,16 @@ async def publish_alerts_by_date_range(
     if not siem_client:
         raise HTTPException(status_code=503, detail="Connector not initialized")
     
-    alerts = await siem_client.fetch_alerts(
-        limit=limit,
-        offset=0,
-        start_date=start_date,
-        end_date=end_date,
-    )
+    try:
+        alerts = await siem_client.fetch_alerts(
+            limit=limit,
+            offset=0,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except Exception as e:
+        logger.error("Failed to fetch alerts: %s", e)
+        raise HTTPException(status_code=502, detail=f"SIEM API error: {e}")
     
     if config.use_rabbitmq:
         if not rabbit_publisher:
@@ -174,7 +246,11 @@ async def publish_alerts_by_date_range(
 async def send_plan_to_siem(alert_id: str, body: SendPlanRequest):
     if not siem_client:
         raise HTTPException(status_code=503, detail="SIEM client not initialized")
-    success = await siem_client.send_plan(alert_id, body.plan)
+    try:
+        success = await siem_client.send_plan(alert_id, body.plan)
+    except Exception as e:
+        logger.error("Failed to send plan for alert %s: %s", alert_id, e)
+        raise HTTPException(status_code=502, detail=f"SIEM API error: {e}")
     if not success:
         raise HTTPException(status_code=500, detail="Failed to send plan")
     return {"status": "ok", "alert_id": alert_id}

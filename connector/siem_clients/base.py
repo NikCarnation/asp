@@ -12,6 +12,7 @@ class SiemClient(ABC):
         offset: int = 0,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        filters: dict | None = None,
     ) -> list[NormalizedAlert]:
         ...
 

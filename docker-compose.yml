@@ -10,19 +10,19 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
 
   chroma:
     image: chromadb/chroma:latest
@@ -61,7 +61,7 @@ services:
       - "8001:8001"
     depends_on:
       - rabbitmq
-      - ollama
+      # - ollama
       - chroma
     environment:
       RABBITMQ_HOST: rabbitmq
@@ -70,8 +70,8 @@ services:
       RABBITMQ_PASS: guest
       RABBITMQ_QUEUE: aisoc_alerts
       OLLAMA_BASE_URL: http://ollama:11434/v1
-      SMALL_LLM_MODEL: ${SMALL_LLM_MODEL:-phi3:mini}
-      LARGE_LLM_MODEL: ${LARGE_LLM_MODEL:-llama3.1:8b}
+      SMALL_LLM_MODEL: ${SMALL_LLM_MODEL:-qwen2.5-coder:3b}
+      LARGE_LLM_MODEL: ${LARGE_LLM_MODEL:-ministral-3:8b}
       CHROMA_HOST: chroma
       CHROMA_PORT: 8000
       CHROMA_COLLECTION: aisoc_playbooks

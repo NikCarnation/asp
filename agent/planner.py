@@ -1,7 +1,7 @@
-import json
 from datetime import datetime, timezone
 
-from openai import AsyncOpenAI
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
 
 from agent.models.schemas import AnalysisPlan, NormalizedAlert, PlanStep
 from agent.rag.knowledge_base import Playbook
@@ -15,29 +15,27 @@ You will receive:
 
 Create a structured investigation plan with specific, actionable steps.
 
-Return a JSON object with the following structure:
-{
-  "summary": "Brief 1-2 sentence summary of the incident",
-  "steps": [
-    {
-      "order": 1,
-      "action": "Short action name",
-      "description": "Detailed description of what to do",
-      "commands": ["command1", "command2"],
-      "expected_result": "What to expect from this step"
-    }
-  ]
-}
+Return a JSON object with:
+- "summary": brief 1-2 sentence description of the incident
+- "steps": array of objects with "order" (int), "action" (str), "description" (str), "commands" (list[str]), "expected_result" (str)
+- "raw_markdown": full plan as markdown text"""
 
-Also provide the plan as raw markdown text in a "raw_markdown" field.
 
-Respond with raw JSON only, no markdown formatting."""
+class _PlanOutput(BaseModel):
+    summary: str
+    steps: list[PlanStep]
+    raw_markdown: str = ""
 
 
 class Planner:
     def __init__(self, base_url: str, model: str):
-        self.client = AsyncOpenAI(base_url=base_url, api_key="ollama")
-        self.model = model
+        self.llm = ChatOpenAI(
+            base_url=base_url,
+            model=model,
+            api_key="ollama",
+            temperature=0.2,
+            max_tokens=2000,
+        ).with_structured_output(_PlanOutput)
 
     async def create_plan(
         self,
@@ -47,7 +45,7 @@ class Planner:
     ) -> AnalysisPlan:
         playbook_text = "\n\n---\n\n".join(
             f"## {pb.title}\n{pb.content}" for pb in playbooks
-        ) if playbooks else "No specific playbook found for this category. Use general SOC analysis best practices."
+        ) if playbooks else "No specific playbook found for this category."
 
         alert_summary = (
             f"Rule: {alert.rule_name} (level={alert.rule_level})\n"
@@ -65,37 +63,17 @@ class Planner:
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.2,
-                max_tokens=2000,
-            )
-            content = response.choices[0].message.content.strip()
-            content = content.removeprefix("```json").removesuffix("```").strip()
-            data = json.loads(content)
-
-            steps = [
-                PlanStep(
-                    order=s.get("order", i + 1),
-                    action=s.get("action", ""),
-                    description=s.get("description", ""),
-                    commands=s.get("commands", []),
-                    expected_result=s.get("expected_result", ""),
-                )
-                for i, s in enumerate(data.get("steps", []))
-            ]
-
+            result = await self.llm.ainvoke([
+                {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ])
             return AnalysisPlan(
                 alert_id=alert.event_id,
                 incident_category=category,
                 created_at=datetime.now(timezone.utc),
-                summary=data.get("summary", ""),
-                steps=steps,
-                raw_markdown=data.get("raw_markdown", ""),
+                summary=result.summary,
+                steps=result.steps,
+                raw_markdown=result.raw_markdown,
             )
         except Exception as e:
             return AnalysisPlan(
@@ -103,14 +81,6 @@ class Planner:
                 incident_category=category,
                 created_at=datetime.now(timezone.utc),
                 summary=f"Failed to generate plan: {e}",
-                steps=[
-                    PlanStep(
-                        order=1,
-                        action="Manual Analysis Required",
-                        description=f"Auto-generation failed: {e}. Review alert manually.",
-                        commands=[],
-                        expected_result="Manual investigation results",
-                    )
-                ],
-                raw_markdown=f"# Analysis Plan: {alert.rule_name}\n\n*Auto-generation failed. Manual analysis required.*",
+                steps=[],
+                raw_markdown=f"# Error\nPlan generation failed: {e}",
             )

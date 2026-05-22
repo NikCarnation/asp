@@ -1,23 +1,24 @@
-import json
-
-from openai import AsyncOpenAI
+from langchain_openai import ChatOpenAI
 
 from agent.models.schemas import IncidentCategory, NormalizedAlert
 
 CATEGORIZE_SYSTEM_PROMPT = """You are an AI SOC analyst. Your task is to categorize security alerts into incident types.
 
-Analyze the alert data and determine the most likely incident category. Return ONLY a JSON object with:
-- "category": one of [brute-force, web-exploit, malware, phishing, reconnaissance, unauthorized-access, data-exfiltration, denial-of-service, policy-violation, unknown]
-- "confidence": float between 0.0 and 1.0
-- "description": brief explanation of your reasoning
+Analyze the alert data and determine the most likely incident category.
+Return the category, confidence score, and a brief explanation.
 
-Respond with raw JSON only, no markdown formatting."""
+Categories: brute-force, web-exploit, malware, phishing, reconnaissance, unauthorized-access, data-exfiltration, denial-of-service, policy-violation, unknown"""
 
 
 class Categorizer:
     def __init__(self, base_url: str, model: str):
-        self.client = AsyncOpenAI(base_url=base_url, api_key="ollama")
-        self.model = model
+        self.llm = ChatOpenAI(
+            base_url=base_url,
+            model=model,
+            api_key="ollama",
+            temperature=0.1,
+            max_tokens=150,
+        ).with_structured_output(IncidentCategory)
 
     async def categorize(self, alert: NormalizedAlert) -> IncidentCategory:
         alert_text = (
@@ -30,25 +31,11 @@ class Categorizer:
             f"Protocol: {alert.network_protocol}\n"
             f"Message: {alert.message[:500]}"
         )
-
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": CATEGORIZE_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Alert:\n{alert_text}"},
-                ],
-                temperature=0.1,
-                max_tokens=150,
-            )
-            content = response.choices[0].message.content.strip()
-            content = content.removeprefix("```json").removesuffix("```").strip()
-            data = json.loads(content)
-            return IncidentCategory(
-                category=data.get("category", "unknown"),
-                confidence=data.get("confidence", 0.0),
-                description=data.get("description", ""),
-            )
+            return await self.llm.ainvoke([
+                {"role": "system", "content": CATEGORIZE_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Alert:\n{alert_text}"},
+            ])
         except Exception as e:
             return IncidentCategory(
                 category="unknown",

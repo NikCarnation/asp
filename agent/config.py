@@ -9,19 +9,18 @@ class AgentConfig(BaseSettings):
     rabbitmq_queue: str = "aisoc_alerts"
 
     ollama_base_url: str = "http://localhost:11434/v1"
-    small_llm_model: str = "phi3:mini"
-    large_llm_model: str = "llama3.1:8b"
+    small_llm_model: str = "ministral-3:8b"
+    large_llm_model: str = "qwen3.6:27b"
 
     chroma_host: str = "localhost"
-    chroma_port: int = 8000
+    chroma_port: int = 8002
     chroma_collection: str = "aisoc_playbooks"
 
     agent_host: str = "0.0.0.0"
     agent_port: int = 8001
 
-    wazuh_api_url: str = "http://localhost:55000"
-    wazuh_api_user: str = "wazuh-wui"
-    wazuh_api_pass: str = "wazuh-wui"
-    wazuh_mock: bool = True
+    db_path: str = "data/analyses.db"
+
+    verbose: bool = True
 
     model_config = {"env_file": ".env", "extra": "ignore"}

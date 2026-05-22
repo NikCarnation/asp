@@ -1,47 +1,62 @@
+import time
+
+from agent.agent import create_agent
 from agent.categorizer import Categorizer
+from agent.db import save_analysis
 from agent.models.schemas import AnalysisPlan, NormalizedAlert
 from agent.planner import Planner
-from agent.rag.knowledge_base import CATEGORY_PLAYBOOK_MAP
 from agent.rag.vector_store import VectorStore
+
+SEP = "═" * 60
 
 
 class AgentPipeline:
-    def __init__(self, categorizer: Categorizer, planner: Planner, vector_store: VectorStore):
-        self.categorizer = categorizer
-        self.planner = planner
-        self.vector_store = vector_store
+    def __init__(
+        self,
+        categorizer: Categorizer,
+        planner: Planner,
+        vector_store: VectorStore,
+        db_path: str | None = None,
+        verbose: bool = False,
+    ):
+        self.verbose = verbose
+        self.db_path = db_path
+        self.graph = create_agent(categorizer, planner, vector_store, verbose=verbose)
 
     async def process(self, alert: NormalizedAlert) -> AnalysisPlan:
-        step = "categorization"
-        try:
-            category = await self.categorizer.categorize(alert)
-            step = "rag"
+        t0 = time.monotonic()
+        result = await self.graph.ainvoke({
+            "alert": alert,
+            "category": None,
+            "playbooks": [],
+            "plan": None,
+        })
+        plan = result["plan"]
+        duration = time.monotonic() - t0
 
-            playbooks = self.vector_store.search(
-                category=category.category,
-                query=alert.rule_name,
-            )
+        if self.verbose:
+            print(f"\n{SEP}")
+            print(f"  TOTAL: {plan.alert_id} — {plan.incident_category}")
+            print(f"  ⏱  {duration:.1f}s total")
+            print(f"{SEP}\n")
 
-            if not playbooks and category.category in CATEGORY_PLAYBOOK_MAP:
-                from agent.rag.knowledge_base import Playbook
-                playbooks = [CATEGORY_PLAYBOOK_MAP[category.category]]
-            elif not playbooks:
-                playbooks = self.vector_store.search(category="unknown", query=alert.rule_name)
+        if self.db_path:
+            cat = result.get("category")
+            pbs = result.get("playbooks", [])
+            try:
+                save_analysis(
+                    self.db_path,
+                    alert_id=alert.event_id,
+                    category=cat.category if cat else "unknown",
+                    confidence=cat.confidence if cat else 0.0,
+                    category_description=cat.description if cat else "",
+                    playbook_titles=[pb.title for pb in pbs],
+                    plan_summary=plan.summary,
+                    steps_count=len(plan.steps),
+                    raw_markdown=plan.raw_markdown,
+                    duration_seconds=duration,
+                )
+            except Exception as e:
+                print(f"  [db] save error: {e}")
 
-            step = "planning"
-            plan = await self.planner.create_plan(
-                alert=alert,
-                category=category.category,
-                playbooks=playbooks,
-            )
-            return plan
-
-        except Exception as e:
-            return AnalysisPlan(
-                alert_id=alert.event_id,
-                incident_category=step,
-                created_at=alert.timestamp,
-                summary=f"Pipeline error at stage '{step}': {e}",
-                steps=[],
-                raw_markdown=f"# Error\nPipeline failed at **{step}** stage: {e}",
-            )
+        return plan

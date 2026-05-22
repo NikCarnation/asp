@@ -1,88 +1,131 @@
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+from enum import Enum
+
+from pydantic import BaseModel, Field
 
 from agent.models.schemas import NormalizedAlert
 
 
+class EcsSeverity(int, Enum):
+    UNKNOWN  = 0
+    LOW      = 1
+    MEDIUM   = 2
+    HIGH     = 3
+    CRITICAL = 4
+
+
+class EcsEvent(BaseModel):
+    id: str
+    kind: str = "alert"
+    category: List[str] = []
+    type: List[str] = []
+    severity: int = EcsSeverity.UNKNOWN
+    outcome: Optional[str] = None
+    action: Optional[str] = None
+    dataset: str = "wazuh.alerts"
+    module: str = "wazuh"
+    provider: str = "wazuh"
+    created: datetime = Field(default_factory=datetime.utcnow)
+    original: Optional[str] = None
+
+
+class EcsHost(BaseModel):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    ip: Optional[List[str]] = None
+    hostname: Optional[str] = None
+    os: Optional[Dict[str, Any]] = None
+
+
+class EcsSource(BaseModel):
+    ip: Optional[str] = None
+    port: Optional[int] = None
+    domain: Optional[str] = None
+    geo: Optional[Dict[str, Any]] = None
+
+
+class EcsDestination(BaseModel):
+    ip: Optional[str] = None
+    port: Optional[int] = None
+    domain: Optional[str] = None
+
+
+class EcsNetwork(BaseModel):
+    protocol: Optional[str] = None
+    transport: Optional[str] = None
+    direction: Optional[str] = None
+
+
+class EcsThreat(BaseModel):
+    framework: str = "MITRE ATT&CK"
+    tactic: Optional[Dict[str, Any]] = None
+    technique: Optional[Dict[str, Any]] = None
+
+
+class EcsRule(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    version: Optional[str] = None
+    ruleset: Optional[str] = "wazuh"
+    reference: Optional[str] = None
+
+
+class EcsCompliance(BaseModel):
+    gdpr: Optional[List[str]] = None
+    pci_dss: Optional[List[str]] = None
+    hipaa: Optional[List[str]] = None
+    nist_800_53: Optional[List[str]] = None
+
+
+class ECSAlert(BaseModel):
+    schema_version: str = "8.11.0"
+    source_system: str = "wazuh"
+    timestamp: datetime
+    event: EcsEvent
+    host: EcsHost
+    rule: EcsRule
+    source: Optional[EcsSource] = None
+    destination: Optional[EcsDestination] = None
+    network: Optional[EcsNetwork] = None
+    threat: Optional[List[EcsThreat]] = None
+    tags: List[str] = []
+    labels: Dict[str, str] = {}
+    message: Optional[str] = None
+    compliance: Optional[EcsCompliance] = None
+    raw: Optional[Dict[str, Any]] = None
+
+    model_config = {"use_enum_values": True}
+
+
 def normalize_wazuh_alert(raw: dict) -> NormalizedAlert:
     data = raw.get("data", raw)
-
     rule = data.get("rule", {})
 
-    timestamp_str = data.get("timestamp") or data.get("@timestamp") or datetime.now(timezone.utc).isoformat()
-    if timestamp_str.endswith("Z"):
-        timestamp_str = timestamp_str[:-1] + "+00:00"
+    ts = data.get("timestamp", datetime.utcnow().isoformat())
+    if isinstance(ts, str):
+        ts = ts.replace("Z", "+00:00")
+        ts = datetime.fromisoformat(ts)
 
     return NormalizedAlert(
-        timestamp=datetime.fromisoformat(timestamp_str),
+        timestamp=ts,
         event_id=data.get("id", data.get("_id", "")),
         event_kind="alert",
-        event_category=_map_category(rule.get("category", "")),
-        event_type=_map_type(rule.get("level", 0)),
+        event_category=rule.get("category", "unknown"),
+        event_type="unknown",
         event_severity=rule.get("level", 0),
-        rule_id=rule.get("id", ""),
+        rule_id=str(rule.get("id", "")),
         rule_name=rule.get("name", ""),
         rule_level=rule.get("level", 0),
         rule_description=rule.get("description", ""),
-        source_ip=_get_source_ip(data),
-        source_port=data.get("srcport") or data.get("source", {}).get("port"),
-        destination_ip=_get_dest_ip(data),
-        destination_port=data.get("dstport") or data.get("destination", {}).get("port"),
-        user_name=_get_user(data),
-        process_name=data.get("process", {}).get("name"),
-        network_protocol=data.get("protocol", ""),
-        message=data.get("full_log", data.get("message", "")),
-        ecs_version="8.11.0",
-        raw=raw,
+        source_ip=data.get("srcip"),
+        source_port=data.get("srcport"),
+        destination_ip=data.get("dstip"),
+        destination_port=data.get("dstport"),
+        user_name=data.get("user"),
+        network_protocol=data.get("protocol"),
+        message=data.get("full_log") or rule.get("description", ""),
+        raw=data,
     )
-
-
-def _map_category(category: str) -> str:
-    mapping = {
-        "authentication": "authentication",
-        "authentication_failed": "authentication",
-        "invalid_login": "authentication",
-        "firewall": "network",
-        "web": "web",
-        "malware": "malware",
-        "syslog": "system",
-        "policy": "compliance",
-    }
-    return mapping.get(category.lower(), category.lower() or "unknown")
-
-
-def _map_type(level: int) -> str:
-    if level >= 12:
-        return "critical"
-    if level >= 7:
-        return "warning"
-    if level >= 4:
-        return "info"
-    return "notice"
-
-
-def _get_source_ip(data: dict) -> str | None:
-    for key in ("srcip", "src_ip", "source_ip", "source.ip"):
-        if val := data.get(key):
-            return val
-    if src := data.get("source"):
-        return src.get("ip") or src.get("address")
-    return None
-
-
-def _get_dest_ip(data: dict) -> str | None:
-    for key in ("dstip", "dst_ip", "dest_ip", "destination.ip"):
-        if val := data.get(key):
-            return val
-    if dst := data.get("destination"):
-        return dst.get("ip") or dst.get("address")
-    return None
-
-
-def _get_user(data: dict) -> str | None:
-    for key in ("user", "username", "user.name"):
-        val = data.get(key)
-        if isinstance(val, dict):
-            return val.get("name") or val.get("id")
-        if val:
-            return str(val)
-    return None

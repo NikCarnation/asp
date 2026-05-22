@@ -1,13 +1,19 @@
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from agent.categorizer import Categorizer
 from agent.config import AgentConfig
+from agent.models.schemas import NormalizedAlert
 from agent.pipeline import AgentPipeline
 from agent.planner import Planner
 from agent.rag.knowledge_base import ALL_PLAYBOOKS
 from agent.rag.vector_store import VectorStore
+from connector.broker.rabbit import RabbitConsumer
+
+logger = logging.getLogger(__name__)
 
 config = AgentConfig()
 
@@ -15,6 +21,18 @@ categorizer: Categorizer | None = None
 planner: Planner | None = None
 vector_store: VectorStore | None = None
 pipeline: AgentPipeline | None = None
+
+
+async def handle_alert(alert: NormalizedAlert):
+    logger.info("Processing alert %s via RabbitMQ", alert.event_id)
+    if not pipeline:
+        logger.error("Pipeline not initialized")
+        return
+    try:
+        plan = await pipeline.process(alert)
+        logger.info("Plan generated for alert %s: %s", alert.event_id, plan.summary[:100])
+    except Exception as e:
+        logger.error("Failed to process alert %s: %s", alert.event_id, e)
 
 
 @asynccontextmanager
@@ -44,9 +62,22 @@ async def lifespan(app: FastAPI):
         categorizer=categorizer,
         planner=planner,
         vector_store=vector_store,
+        db_path=config.db_path,
+        verbose=config.verbose,
     )
 
+    consumer = RabbitConsumer(
+        host=config.rabbitmq_host,
+        port=config.rabbitmq_port,
+        user=config.rabbitmq_user,
+        password=config.rabbitmq_pass,
+        queue=config.rabbitmq_queue,
+    )
+    asyncio.create_task(consumer.consume(handle_alert))
+
     yield
+
+    await consumer.close()
 
 
 app = FastAPI(title="AISOC Agent", lifespan=lifespan)
@@ -65,7 +96,6 @@ async def health():
 
 @app.post("/api/v1/process")
 async def process_alert(alert: dict):
-    from agent.models.schemas import NormalizedAlert
     if not pipeline:
         return {"error": "pipeline not initialized"}
     normalized = NormalizedAlert(**alert)

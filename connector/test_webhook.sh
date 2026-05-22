@@ -46,30 +46,4 @@ curl -X POST http://localhost:8000/webhook/generic \
     "message": "Port scan detected: 100 ports scanned in 2 seconds"
   }'
 
-echo -e "\n\n=== Testing Direct Alert Endpoint ==="
-curl -X POST http://localhost:8000/api/v1/alerts/direct \
-  -H "Content-Type: application/json" \
-  -d '{
-    "data": {
-      "id": "test-alert-003",
-      "timestamp": "2026-05-20T10:35:00Z",
-      "rule": {
-        "id": "91101",
-        "name": "Web Shell Detection",
-        "level": 12,
-        "description": "Possible web shell upload detected",
-        "category": "web"
-      },
-      "srcip": "203.0.113.50",
-      "dstip": "10.0.0.10",
-      "srcport": 44321,
-      "dstport": 80,
-      "protocol": "tcp",
-      "full_log": "POST /uploads/shell.php - suspicious file upload detected"
-    }
-  }'
-
-echo -e "\n\n=== Testing Health Check ==="
-curl -X GET http://localhost:8000/health
-
 echo -e "\n\nDone!"
