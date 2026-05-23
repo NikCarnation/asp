@@ -16,7 +16,7 @@ curl -X POST http://localhost:8000/webhook/wazuh \
         "description": "Multiple failed SSH login attempts detected",
         "category": "authentication"
       },
-      "srcip": "192.168.1.100",
+      "srcip": "192.168.1.111",
       "dstip": "10.0.0.5",
       "srcport": 54321,
       "dstport": 22,
@@ -40,7 +40,7 @@ curl -X POST http://localhost:8000/webhook/generic \
     "rule_name": "Port Scan Detected",
     "rule_level": 5,
     "rule_description": "Possible port scan from external IP",
-    "source_ip": "198.51.100.77",
+    "source_ip": "198.51.100.109",
     "destination_ip": "10.0.0.1",
     "network_protocol": "tcp",
     "message": "Port scan detected: 100 ports scanned in 2 seconds"

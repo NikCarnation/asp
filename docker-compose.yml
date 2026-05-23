@@ -10,19 +10,28 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama_data:/root/.ollama
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             count: all
-  #             capabilities: [gpu]
+  ollama:
+    image: ollama/ollama:0.24.0
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./scripts/ollama-init.sh:/scripts/ollama-init.sh
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+    entrypoint:
+      - /bin/sh
+      - /scripts/ollama-init.sh
+    command:
+      - ${SMALL_LLM_MODEL:-smollm2:1.7b}
+      - ${LARGE_LLM_MODEL:-luisppb16/gemma4-e4b-SecOps:latest}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   chroma:
     image: chromadb/chroma:latest
@@ -41,6 +50,9 @@ services:
       - "8000:8000"
     depends_on:
       - rabbitmq
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
@@ -49,9 +61,14 @@ services:
       RABBITMQ_QUEUE: aisoc_alerts
       CONNECTOR_HOST: "0.0.0.0"
       CONNECTOR_PORT: 8000
-      WAZUH_API_URL: ${WAZUH_API_URL:-http://wazuh:55000}
-      WAZUH_API_USER: ${WAZUH_API_USER:-wazuh-wui}
+      USE_RABBITMQ: "true"
+      WAZUH_API_URL: https://host.docker.internal:55000
+      WAZUH_API_USER: wazuh-wui
       WAZUH_API_PASS: ${WAZUH_API_PASS:-wazuh-wui}
+      WAZUH_API_INDEXER_URL: https://host.docker.internal:9200
+      WAZUH_API_INDEXER_USER: admin
+      WAZUH_API_INDEXER_PASS: ${WAZUH_API_INDEXER_PASS:-SecretPassword}
+      WAZUH_API_INDEXER_ALERT: wazuh-alerts-4.x-
 
   agent:
     build:
@@ -61,8 +78,11 @@ services:
       - "8001:8001"
     depends_on:
       - rabbitmq
-      # - ollama
+      - ollama
       - chroma
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
@@ -70,15 +90,15 @@ services:
       RABBITMQ_PASS: guest
       RABBITMQ_QUEUE: aisoc_alerts
       OLLAMA_BASE_URL: http://ollama:11434/v1
-      SMALL_LLM_MODEL: ${SMALL_LLM_MODEL:-qwen2.5-coder:3b}
-      LARGE_LLM_MODEL: ${LARGE_LLM_MODEL:-ministral-3:8b}
+      SMALL_LLM_MODEL: ${SMALL_LLM_MODEL:-smollm2:1.7b}
+      LARGE_LLM_MODEL: ${LARGE_LLM_MODEL:-luisppb16/gemma4-e4b-SecOps:latest}
       CHROMA_HOST: chroma
       CHROMA_PORT: 8000
       CHROMA_COLLECTION: aisoc_playbooks
       AGENT_HOST: "0.0.0.0"
       AGENT_PORT: 8001
-      WAZUH_API_URL: ${WAZUH_API_URL:-http://wazuh:55000}
-      WAZUH_API_USER: ${WAZUH_API_USER:-wazuh-wui}
+      WAZUH_API_URL: https://host.docker.internal:55000
+      WAZUH_API_USER: wazuh-wui
       WAZUH_API_PASS: ${WAZUH_API_PASS:-wazuh-wui}
 
 volumes:

@@ -34,12 +34,10 @@ async def lifespan(app: FastAPI):
         )
         try:
             await rabbit_publisher.connect()
-            init_publisher(rabbit_publisher, use_rmq=True)
             logger.info("RabbitMQ publisher initialized")
         except Exception as e:
-            logger.warning("RabbitMQ not available, continuing without broker: %s", e)
-            rabbit_publisher = None
-            init_publisher(None, use_rmq=False)
+            logger.warning("RabbitMQ not available at startup, will retry on publish: %s", e)
+        init_publisher(rabbit_publisher, use_rmq=True)
     else:
         logger.info("RabbitMQ disabled by configuration (use_rabbitmq=False)")
         init_publisher(None, use_rmq=False)
