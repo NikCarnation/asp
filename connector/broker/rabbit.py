@@ -45,6 +45,8 @@ class RabbitConsumer:
     async def connect(self):
         self.connection = await aio_pika.connect_robust(self.url)
         self.channel = await self.connection.channel()
+        # Process one message at a time to guarantee ordering
+        await self.channel.set_qos(prefetch_count=1)
         self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
     async def consume(self, callback) -> None:

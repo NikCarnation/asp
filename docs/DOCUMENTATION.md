@@ -43,7 +43,6 @@ SIEM → Connector → RabbitMQ → Agent → план анализа
                   ┌──────────────┼──────────────┐
                   ▼              ▼              ▼
             Categorizer       RAG          Planner
-           (ministral-3:8b)  (Chroma)   (qwen3.6:27b)
 ```
 
 ---
