@@ -4,21 +4,8 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from agent.models.schemas import AnalysisPlan, NormalizedAlert, PlanStep
+from agent.prompts import PLANNER_SYSTEM_PROMPT
 from agent.rag.knowledge_base import Playbook
-
-PLANNER_SYSTEM_PROMPT = """You are a senior SOC analyst creating an incident investigation plan.
-
-You will receive:
-1. A security alert
-2. The incident category determined by preliminary analysis
-3. Relevant playbook information from the knowledge base
-
-Create a structured investigation plan with specific, actionable steps.
-
-Return a JSON object with:
-- "summary": brief 1-2 sentence description of the incident
-- "steps": array of objects with "order" (int), "action" (str), "description" (str), "commands" (list[str]), "expected_result" (str)
-- "raw_markdown": full plan as markdown text"""
 
 
 class _PlanOutput(BaseModel):
@@ -28,11 +15,11 @@ class _PlanOutput(BaseModel):
 
 
 class Planner:
-    def __init__(self, base_url: str, model: str):
+    def __init__(self, base_url: str, model: str, api_key: str = ""):
         self.llm = ChatOpenAI(
             base_url=base_url,
             model=model,
-            api_key="ollama",
+            api_key=api_key or "ollama",
             temperature=0.2,
             max_tokens=2000,
         ).with_structured_output(_PlanOutput)

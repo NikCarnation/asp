@@ -5,27 +5,27 @@
 ```
 ┌──────────────┐     ┌─────────────────┐     ┌──────────────────┐
 │    SIEM      │────▶│   Connector     │────▶│  Message Broker  │
-│  (Wazuh)     │◀────│  (микросервис)  │     │  (RabbitMQ/Kafka)│
+│  (Wazuh)     │◀────│  (микросервис)  │     │  (RabbitMQ)      │
 └──────────────┘     └─────────────────┘     └────────┬─────────┘
-                                         ┌────────────▼─────────┐
-                                         │   Agent System        │
-                                         │  ┌─────────────────┐  │
-                                         │  │  Categorizer    │  │
-                                         │  │  (Small LLM)    │  │
-                                         │  ├─────────────────┤  │
-                                         │  │  RAG Module     │  │
-                                         │  │  (Vector DB)    │  │
-                                         │  ├─────────────────┤  │
-                                         │  │  Planner        │  │
-                                         │  │  (Large LLM)    │  │
-                                         │  └─────────────────┘  │
-                                         └───────────────────────┘
-                                                    │
-                                                    ▼
-                                         ┌──────────────────┐
-                                         │  SIEM Dashboard  │
-                                         │  (вывод плана)   │
-                                         └──────────────────┘
+                                          ┌────────────▼─────────┐
+                                          │   Agent System        │
+                                          │  ┌─────────────────┐  │
+                                          │  │  Categorizer    │  │
+                                          │  │  (Small LLM)    │  │
+                                          │  ├─────────────────┤  │
+                                          │  │  RAG Module     │  │
+                                          │  │  (Vector DB)    │  │
+                                          │  ├─────────────────┤  │
+                                          │  │  Planner        │  │
+                                          │  │  (Large LLM)    │  │
+                                          │  └─────────────────┘  │
+                                          └───────────────────────┘
+                                                      │
+                                                      ▼
+                                          ┌──────────────────┐
+                                          │  SIEM Dashboard  │
+                                          │  (вывод плана)   │
+                                          └──────────────────┘
 ```
 
 ## 2. Технологический стек
@@ -36,8 +36,8 @@
 | API-фреймворк | FastAPI | Flask |
 | Брокер сообщений | RabbitMQ | Kafka |
 | Векторная БД | Chroma | Qdrant, FAISS |
-| Small LLM | llama3.2:1b / phi3:mini | Через Ollama |
-| Large LLM | llama3.1:8b / qwen2.5:7b | Через Ollama или OpenRouter |
+| Small LLM | gemma2:2b / любая OpenAI-совместимая | Через Ollama или облачного провайдера |
+| Large LLM | gemma2:2b / любая OpenAI-совместимая | Через Ollama или облачного провайдера |
 | Нормализация | ECS (Elastic Common Schema) | — |
 | SIEM | Wazuh (тестовый стенд) | — |
 | Дашборд | Wazuh Custom Dashboard | — |
@@ -47,21 +47,28 @@
 
 ```
 aisoc/
-├── main.py                    # Точка входа (оркестратор)
+├── main.py                    # Точка входа (оркестратор, AISOC_MODE)
 ├── docker-compose.yml
-├── .env.example
+├── .env
 ├── requirements.txt
 ├── pyproject.toml
 ├── connector/                 # Микросервис-коннектор
 │   ├── __init__.py
 │   ├── main.py               # FastAPI app
+│   ├── config.py             # ConnectorConfig
+│   ├── schemas.py            # Pydantic модели запросов
 │   ├── siem_clients/
 │   │   ├── __init__.py
 │   │   ├── base.py           # Абстрактный клиент SIEM
-│   │   └── wazuh.py          # Клиент Wazuh
+│   │   ├── indexer.py        # Клиент Wazuh Indexer (OpenSearch)
+│   │   └── wazuh.py          # Клиент Wazuh Manager API
 │   ├── normalizer/
 │   │   ├── __init__.py
-│   │   └── ecs.py            # Нормализация в ECS
+│   │   ├── base.py           # BaseNormalizer (ABC)
+│   │   ├── ecs.py            # Нормализация в ECS
+│   │   └── wazuh/
+│   │       ├── wazuh_base.py
+│   │       └── wazuh_normalizer.py
 │   ├── webhook/
 │   │   ├── __init__.py
 │   │   └── listener.py       # Webhook listener
@@ -70,19 +77,34 @@ aisoc/
 │       └── rabbit.py         # Интеграция с RabbitMQ
 ├── agent/                    # Агентная система
 │   ├── __init__.py
+│   ├── main.py               # FastAPI + lifespan + RabbitMQ consumer
+│   ├── config.py             # AgentConfig (LLM, RabbitMQ, Chroma)
+│   ├── agent.py              # LangGraph StateGraph
+│   ├── pipeline.py           # AgentPipeline — обёртка
 │   ├── categorizer.py        # Категоризация (small LLM)
-│   ├── rag/
-│   │   ├── __init__.py
-│   │   ├── vector_store.py   # Работа с векторной БД
-│   │   └── knowledge_base.py # Управление базой знаний
 │   ├── planner.py            # Формирование плана (large LLM)
-│   └── models/
+│   ├── db.py                 # SQLite persistence
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── schemas.py        # Pydantic модели
+│   └── rag/
 │       ├── __init__.py
-│       └── schemas.py        # Pydantic модели
-└── knowledge/                # База знаний (playbooks)
-    ├── brute-force.md
-    ├── web-exploit.md
-    └── ...
+│       ├── vector_store.py   # Работа с векторной БД
+│       └── knowledge_base.py # Загрузка плейбуков из *.md
+├── scripts/
+│   ├── check_indexer.py      # Проверка соединения с Wazuh Indexer
+│   ├── add_alert.py          # Добавление тестовых алертов
+│   └── ollama-init.sh        # Инициализация Ollama (pull моделей)
+├── knowledge/                # База знаний (playbooks)
+│   ├── brute-force.md
+│   ├── web-exploit.md
+│   ├── malware.md
+│   ├── reconnaissance.md
+│   ├── unauthorized-access.md
+│   └── policy-violation.md
+├── Dockerfile.connector
+├── Dockerfile.agent
+└── docs/                     # Документация
 ```
 
 ## 4. Этапы реализации
@@ -94,14 +116,14 @@ aisoc/
 
 ### Этап 2: Connector (микросервис-коннектор)
 - FastAPI приложение
-- REST API клиент для Wazuh
+- REST API клиент для Wazuh (Indexer + Manager API)
 - Webhook listener
 - Нормализатор событий → ECS
 - Интеграция с RabbitMQ
 
 ### Этап 3: База знаний и RAG
 - Векторная БД (Chroma)
-- Индексация плейбуков
+- Индексация плейбуков из knowledge/*.md
 - RAG pipeline для поиска
 
 ### Этап 4: Модуль планирования

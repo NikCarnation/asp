@@ -28,7 +28,7 @@ agent/
 │   ├── schemas.py       # Pydantic-модели (NormalizedAlert, AnalysisPlan, ...)
 │   └── __init__.py
 └── rag/
-    ├── knowledge_base.py   # Встроенные плейбуки (6 категорий)
+    ├── knowledge_base.py   # Загрузка плейбуков из knowledge/*.md
     ├── vector_store.py     # Клиент Chroma DB для RAG
     └── __init__.py
 ```
@@ -47,7 +47,7 @@ NormalizedAlert
       ▼
 ┌──────────────────────┐
 │     CATEGORIZER      │
-│   (Small LLM:phi3)   │
+│  (Small LLM:gemma2)  │
 │                      │
 │  Alert ──► LLM ──►   │
 │  category + conf     │
@@ -69,7 +69,7 @@ NormalizedAlert
            ▼
 ┌──────────────────────┐
 │      PLANNER         │
-│  (Large LLM:llama3)  │
+│  (Large LLM:gemma2)  │
 │                      │
 │  alert + category +  │
 │  playbooks ──► LLM   │
@@ -111,15 +111,15 @@ class AgentPipeline:
         return plan
 ```
 
-- Если RAG не вернул результат по категории — используется `CATEGORY_PLAYBOOK_MAP` (прямой mapping из `knowledge_base.py`, строка 222)
+- Если RAG не вернул результат по категории — используется `CATEGORY_PLAYBOOK_MAP` (прямой mapping из `knowledge_base.py`)
 - Если категория не найдена — поиск по "unknown"
-- При ошибке на любом этапе возвращается `AnalysisPlan` с полем `summary`, содержащим описание ошибки, и этапом, на котором она произошла
+- При ошибке на любом этапе возвращается `AnalysisPlan` с полем `summary`, содержащим описание ошибки
 
 ---
 
 ## Категоризатор (Categorizer)
 
-`agent/categorizer.py` — класс `Categorizer`, использующий **малую языковую модель** (по умолчанию `phi3:mini`) для определения типа инцидента.
+`agent/categorizer.py` — класс `Categorizer`, использующий **малую языковую модель** (по умолчанию `gemma2:2b`) для определения типа инцидента.
 
 ### Системный промпт
 
@@ -163,19 +163,19 @@ Message: SSHD 5 failed login attempts from 192.168.1.100 to user root
 
 | Параметр | Значение |
 |----------|----------|
-| Модель | `phi3:mini` (настраивается через `SMALL_LLM_MODEL`) |
+| Модель | `gemma2:2b` (настраивается через `SMALL_LLM_MODEL`) |
 | Temperature | 0.1 (низкая — детерминированные ответы) |
 | Max tokens | 150 |
-| API | OpenAI-совместимый (Ollama) |
+| API | OpenAI-совместимый (Ollama / OpenRouter / OpenAI) |
+| API Key | Из `LLM_API_KEY` (пустой для Ollama → fallback "ollama") |
 
 - При ошибке парсинга JSON возвращается категория `"unknown"` с `confidence=0.0`
-- Ответ модели очищается от markdown-обёрток (` ```json `) перед парсингом
 
 ---
 
 ## Планировщик (Planner)
 
-`agent/planner.py` — класс `Planner`, использующий **большую языковую модель** (по умолчанию `llama3.1:8b`) для создания детального пошагового плана анализа.
+`agent/planner.py` — класс `Planner`, использующий **большую языковую модель** (по умолчанию `gemma2:2b`) для создания детального пошагового плана анализа.
 
 ### Системный промпт
 
@@ -221,12 +221,13 @@ Create a structured investigation plan with specific, actionable steps.
 
 | Параметр | Значение |
 |----------|----------|
-| Модель | `llama3.1:8b` (настраивается через `LARGE_LLM_MODEL`) |
+| Модель | `gemma2:2b` (настраивается через `LARGE_LLM_MODEL`) |
 | Temperature | 0.2 |
 | Max tokens | 2000 |
+| API | OpenAI-совместимый (Ollama / OpenRouter / OpenAI) |
+| API Key | Из `LLM_API_KEY` (пустой для Ollama → fallback "ollama") |
 
-- При ошибке возвращается план с одним шагом "Manual Analysis Required"
-- Все ответы проходят через `removeprefix("```json")` и `removesuffix("```")`
+- При ошибке возвращается план с описанием ошибки
 
 ---
 
@@ -239,8 +240,8 @@ Create a structured investigation plan with specific, actionable steps.
 ```
 Старт
   │
-  ├─► Categorizer(client=AsyncOpenAI, model=phi3:mini)
-  ├─► Planner(client=AsyncOpenAI, model=llama3.1:8b)
+  ├─► Categorizer(base_url=LLM_BASE_URL, model=SMALL_LLM_MODEL, api_key=LLM_API_KEY)
+  ├─► Planner(base_url=LLM_BASE_URL, model=LARGE_LLM_MODEL, api_key=LLM_API_KEY)
   ├─► VectorStore(host=chroma, collection=aisoc_playbooks)
   │
   ├─► Если Chroma пуста → загрузить ALL_PLAYBOOKS (6 шт.)
@@ -291,12 +292,13 @@ curl -X POST "http://localhost:8001/api/v1/process" \
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
 | `RABBITMQ_*` | localhost/5672/guest | Настройки RabbitMQ |
-| `OLLAMA_BASE_URL` | http://localhost:11434/v1 | URL Ollama API |
-| `SMALL_LLM_MODEL` | phi3:mini | Модель для категоризации |
-| `LARGE_LLM_MODEL` | llama3.1:8b | Модель для планов |
+| `LLM_BASE_URL` | http://localhost:11434/v1 | URL OpenAI-совместимого API |
+| `LLM_API_KEY` | *(пусто)* | API-ключ (для Ollama оставить пустым) |
+| `SMALL_LLM_MODEL` | gemma2:2b | Модель для категоризации |
+| `LARGE_LLM_MODEL` | gemma2:2b | Модель для планов |
 | `CHROMA_HOST` | localhost | Хост Chroma DB |
-| `CHROMA_PORT` | 8000 | Порт Chroma DB |
+| `CHROMA_PORT` | 8002 | Порт Chroma DB (внешний) |
 | `CHROMA_COLLECTION` | aisoc_playbooks | Имя коллекции в Chroma |
 | `AGENT_HOST` | 0.0.0.0 | Хост FastAPI |
 | `AGENT_PORT` | 8001 | Порт FastAPI |
-| `WAZUH_*` | — | Для отправки плана обратно в SIEM |
+| `VERBOSE` | true | Логирование этапов в терминал |

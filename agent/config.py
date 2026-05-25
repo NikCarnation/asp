@@ -8,9 +8,10 @@ class AgentConfig(BaseSettings):
     rabbitmq_pass: str = "guest"
     rabbitmq_queue: str = "aisoc_alerts"
 
-    ollama_base_url: str = "http://localhost:11434/v1"
-    small_llm_model: str = "ministral-3:8b"
-    large_llm_model: str = "qwen3.6:27b"
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_api_key: str = ""
+    small_llm_model: str = ""
+    large_llm_model: str = ""
 
     chroma_host: str = "localhost"
     chroma_port: int = 8002

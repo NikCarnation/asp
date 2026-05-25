@@ -3,8 +3,8 @@
 ## Требования
 
 ### Минимальные
-- **CPU**: 4+ ядра (рекомендуется 8)
-- **RAM**: 8+ ГБ (из них ~4 ГБ для Ollama с llama3.1:8b)
+- **CPU**: 4+ ядер (рекомендуется 8)
+- **RAM**: 8+ ГБ (из них ~4 ГБ для Ollama с gemma2:2b)
 - **Диск**: 10+ ГБ свободного места
 - **Docker** и **Docker Compose** (рекомендуется)
 - **Python 3.12+** (для локального запуска)
@@ -26,11 +26,12 @@ cd aisoc
 
 ### 2. Настройка
 
-Скопировать `.env.example` в `.env` и отредактировать при необходимости:
-
 ```bash
 cp .env.example .env
+# отредактировать под своё окружение
 ```
+
+Если `.env.example` отсутствует — создать `.env` на основе таблицы конфигурации ниже.
 
 ### 3. Запуск
 
@@ -50,19 +51,16 @@ docker compose up --build
 
 ### 4. Инициализация моделей Ollama
 
-После запуска Ollama нужно скачать модели:
+При первом запуске Ollama автоматически скачает модели, указанные в `SMALL_LLM_MODEL` и `LARGE_LLM_MODEL`. Это может занять несколько минут.
+
+Если нужно скачать модели вручную:
 
 ```bash
 # Установить модели внутри контейнера
-docker exec -it aisoc-ollama-1 ollama pull phi3:mini
-docker exec -it aisoc-ollama-1 ollama pull llama3.1:8b
-```
+docker exec -it aisoc-ollama-1 ollama pull gemma2:2b
 
-Или через порт 11434:
-
-```bash
-curl http://localhost:11434/api/pull -d '{"name": "phi3:mini"}'
-curl http://localhost:11434/api/pull -d '{"name": "llama3.1:8b"}'
+# Или через API
+curl http://localhost:11434/api/pull -d '{"name": "gemma2:2b"}'
 ```
 
 ### 5. Проверка работоспособности
@@ -93,13 +91,15 @@ curl http://localhost:8002/api/v1/heartbeat
 ```bash
 pip install -r requirements.txt
 
-# Или через poetry/uv:
+# или через uv:
 uv pip install -r requirements.txt
 ```
 
 ### 2. Внешние сервисы
 
-Перед запуском нужно поднять зависимые сервисы:
+Перед запуском нужно поднять зависимые сервисы.
+
+**Вариант A — через Docker (отдельные контейнеры):**
 
 ```bash
 # RabbitMQ
@@ -107,7 +107,7 @@ docker run -d --name rabbitmq \
   -p 5672:5672 -p 15672:15672 \
   rabbitmq:3-management
 
-# Ollama
+# Ollama (если используется локально)
 docker run -d --name ollama \
   -p 11434:11434 \
   ollama/ollama:latest
@@ -118,13 +118,30 @@ docker run -d --name chroma \
   chromadb/chroma:latest
 ```
 
+**Вариант B — всё через Docker Compose:**
+
+```bash
+# Поднять только инфраструктуру (без connector/agent)
+docker compose up rabbitmq ollama chroma
+```
+
+**Вариант C — облачная LLM (без Ollama):**
+
+Установите в `.env`:
+```env
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-your-key-here
+```
+
+В этом случае Ollama не требуется.
+
 ### 3. Запуск микросервисов
 
 ```bash
-# Коннектор (в терминале 1)
+# Коннектор (терминал 1)
 AISOC_MODE=connector python main.py
 
-# Агент (в терминале 2)
+# Агент (терминал 2)
 AISOC_MODE=agent python main.py
 ```
 
@@ -153,43 +170,55 @@ uvicorn agent.main:app --host 0.0.0.0 --port 8001 --reload
 | `RABBITMQ_PASS` | guest | Пароль |
 | `RABBITMQ_QUEUE` | aisoc_alerts | Имя очереди для алертов |
 
-#### LLM (Ollama)
+#### LLM (Ollama / облачный провайдер)
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
-| `OLLAMA_BASE_URL` | http://localhost:11434/v1 | URL OpenAI-совместимого API |
-| `SMALL_LLM_MODEL` | phi3:mini | Модель для категоризации |
-| `LARGE_LLM_MODEL` | llama3.1:8b | Модель для формирования планов |
+| `LLM_BASE_URL` | http://localhost:11434/v1 | URL OpenAI-совместимого API |
+| `LLM_API_KEY` | *(пусто)* | API-ключ (для Ollama оставить пустым) |
+| `SMALL_LLM_MODEL` | gemma2:2b | Модель для категоризации |
+| `LARGE_LLM_MODEL` | gemma2:2b | Модель для формирования планов |
 
-**OpenRouter (опционально):**
+**Использование облачных провайдеров:**
 
-В `.env.example` также закомментированы настройки для OpenRouter:
-```bash
-# LLM_PROVIDER=openrouter
-# OPENROUTER_API_KEY=sk-or-v1-...
-# OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+Для OpenAI:
+```env
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-...
+SMALL_LLM_MODEL=gpt-4o-mini
+LARGE_LLM_MODEL=gpt-4o
 ```
 
-Для использования OpenRouter вместо Ollama нужно:
-1. Раскомментировать эти переменные в `.env`
-2. Модифицировать `AsyncOpenAI(base_url=..., api_key=...)` в `categorizer.py` и `planner.py` (сейчас всегда использует `api_key="ollama"`)
+Для OpenRouter:
+```env
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_API_KEY=sk-or-v1-...
+SMALL_LLM_MODEL=openai/gpt-4o-mini
+LARGE_LLM_MODEL=anthropic/claude-3.5-sonnet
+```
+
+Никаких изменений кода не требуется — всё настраивается через `.env`.
 
 #### Chroma (Vector DB)
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
 | `CHROMA_HOST` | localhost | Хост Chroma |
-| `CHROMA_PORT` | 8000 | Порт Chroma API |
+| `CHROMA_PORT` | 8002 | Порт Chroma API (внутренний 8000, внешний 8002) |
 | `CHROMA_COLLECTION` | aisoc_playbooks | Имя коллекции |
+
+**Примечание:** В `docker-compose.yml` Chroma пробрасывается как `8002:8000` (внешний порт 8002 → внутренний 8000 контейнера). При локальном запуске указывайте `CHROMA_PORT=8002`.
 
 #### Wazuh (SIEM)
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
-| `WAZUH_API_URL` | http://localhost:55000 | URL Wazuh API |
+| `WAZUH_API_URL` | https://localhost:55000 | URL Wazuh API |
 | `WAZUH_API_USER` | wazuh-wui | Пользователь |
 | `WAZUH_API_PASS` | wazuh-wui | Пароль |
-| `WAZUH_MOCK` | true | Использовать Mock-клиент вместо реального Wazuh |
+| `USE_RABBITMQ` | false | Включить RabbitMQ (ставьте `true` для полного пайплайна) |
+
+**Внимание:** `WAZUH_MOCK` больше не используется. Для работы без реального Wazuh просто оставьте переменные Wazuh пустыми — `IndexerClient` будет работать в режиме заглушки.
 
 #### Сервисы
 
@@ -202,30 +231,39 @@ uvicorn agent.main:app --host 0.0.0.0 --port 8001 --reload
 
 ### Пример `.env`
 
-```bash
+```env
+# LLM
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_API_KEY=
+SMALL_LLM_MODEL=gemma2:2b
+LARGE_LLM_MODEL=gemma2:2b
+
+# RabbitMQ
 RABBITMQ_HOST=localhost
 RABBITMQ_PORT=5672
 RABBITMQ_USER=guest
 RABBITMQ_PASS=guest
 RABBITMQ_QUEUE=aisoc_alerts
 
-OLLAMA_BASE_URL=http://localhost:11434/v1
-SMALL_LLM_MODEL=phi3:mini
-LARGE_LLM_MODEL=llama3.1:8b
+# Chroma
+CHROMA_HOST=localhost
+CHROMA_PORT=8002
+CHROMA_COLLECTION=aisoc_playbooks
 
-WAZUH_API_URL=http://localhost:55000
-WAZUH_API_USER=wazuh-wui
-WAZUH_API_PASS=wazuh-wui
-WAZUH_MOCK=true
-
+# Connector
 CONNECTOR_HOST=0.0.0.0
 CONNECTOR_PORT=8000
+USE_RABBITMQ=true
+
+# Agent
 AGENT_HOST=0.0.0.0
 AGENT_PORT=8001
+VERBOSE=true
 
-CHROMA_HOST=localhost
-CHROMA_PORT=8000
-CHROMA_COLLECTION=aisoc_playbooks
+# Wazuh (опционально)
+WAZUH_API_URL=https://localhost:55000
+WAZUH_API_USER=wazuh-wui
+WAZUH_API_PASS=changeme
 ```
 
 ---
@@ -260,16 +298,9 @@ CMD ["uvicorn", "agent.main:app", "--host", "0.0.0.0", "--port", "8001"]
 
 ## Тестирование
 
-### С Mock Wazuh (по умолчанию)
+### Прямая отправка в агент (без RabbitMQ)
 
 ```bash
-# Опубликовать mock-алерт в очередь
-curl -X POST "http://localhost:8000/api/v1/publish?alert_id=alert-001"
-
-# Получить список алертов
-curl "http://localhost:8000/api/v1/alerts"
-
-# Напрямую передать алерт в агент
 curl -X POST "http://localhost:8001/api/v1/process" \
   -H "Content-Type: application/json" \
   -d '{
@@ -284,9 +315,62 @@ curl -X POST "http://localhost:8001/api/v1/process" \
   }'
 ```
 
+### Через коннектор (полный пайплайн с RabbitMQ)
+
+```bash
+# Убедитесь, что USE_RABBITMQ=true и RabbitMQ запущен
+
+# Опубликовать mock-алерт в очередь
+curl -X POST "http://localhost:8000/api/v1/publish" \
+  -H "Content-Type: application/json" \
+  -d '{"alert_id": "test-001"}'
+
+# Получить список алертов
+curl "http://localhost:8000/api/v1/alerts"
+```
+
+### Через webhook
+
+```bash
+curl -X POST "http://localhost:8000/webhook/generic" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "2026-05-14T12:00:00Z",
+    "event_id": "wh-001",
+    "rule_name": "SQL Injection",
+    "rule_level": 10,
+    "source_ip": "10.0.0.5",
+    "destination_ip": "192.168.1.1",
+    "message": "Possible SQL injection"
+  }'
+```
+
+### Плейбуки
+
+```bash
+# Список загруженных плейбуков
+curl http://localhost:8001/api/v1/playbooks
+
+# Перезагрузить плейбуки (после редактирования knowledge/*.md)
+curl -X POST http://localhost:8001/api/v1/playbooks/reload
+```
+
+### Скрипты для работы с Wazuh Indexer
+
+```bash
+# Проверить соединение с индексером
+python scripts/check_indexer.py
+
+# Добавить тестовые алерты в индексер
+python scripts/add_alert.py --count 5 --level 7
+
+# Добавить алерт с указанием правила
+python scripts/add_alert.py --rule-name "SSH Brute Force" --level 10
+```
+
 ### С реальным Wazuh
 
-1. Установите `WAZUH_MOCK=false` в `.env`
+1. Установите `USE_RABBITMQ=true` в `.env`
 2. Укажите корректный `WAZUH_API_URL`, `WAZUH_API_USER`, `WAZUH_API_PASS`
 3. Настройте вебхук в Wazuh Dashboard:
    - Configuration → Integration → Webhook
@@ -305,7 +389,7 @@ curl -X POST "http://localhost:8001/api/v1/process" \
 | 11434 | Ollama | LLM API (OpenAI-совместимый) |
 | 8000 | Connector | FastAPI |
 | 8001 | Agent | FastAPI |
-| 8002 | Chroma | Vector DB API |
+| 8002 | Chroma | Vector DB API (внешний) |
 | 55000 | Wazuh | Wazuh API (внешний) |
 
 ---

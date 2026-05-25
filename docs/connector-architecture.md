@@ -51,7 +51,7 @@ class SiemClient(ABC):
 |-------|------|----------|
 | GET | `/api/v1/alerts?limit=100&offset=0` | Получить список алертов |
 | GET | `/api/v1/alerts/{id}` | Получить алерт по ID |
-| POST | `/api/v1/publish?alert_id=...` | Извлечь алерт по ID и опубликовать в очередь |
+| POST | `/api/v1/publish` | Извлечь алерт по ID и опубликовать в очередь |
 | POST | `/api/v1/plan/{alert_id}` | Отправить план анализа в SIEM |
 
 ### 2. Webhook (push-режим)
@@ -177,17 +177,24 @@ async def consume(self, callback):
 
 ---
 
-## Mock-режим для тестирования
+## Тестирование без SIEM
 
-Для разработки и тестирования без реального SIEM используется `MockWazuhClient` (`connector/siem_clients/wazuh.py`).
+Для разработки и тестирования без реального SIEM коннектор можно запустить с отключённым Indexer — все эндпоинты будут работать в режиме заглушки, возвращая тестовые данные.
 
-- Включается флагом `WAZUH_MOCK=true` (значение по умолчанию)
-- Генерирует 5 предопределённых алертов разных типов: SSH Brute Force, Web Shell, Malware, Port Scan, Unauthorized Access
-- Имитирует `fetch_alerts`, `get_alert_by_id`, `send_plan`
+Тестировать полный пайплайн можно через прямую отправку в агент или через webhook:
 
-Позволяет тестировать полный пайплайн:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/publish?alert_id=alert-001"
+# Прямая отправка в агент
+curl -X POST "http://localhost:8001/api/v1/process" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "2026-05-14T12:00:00Z",
+    "event_id": "test-001",
+    "rule_name": "SSH Brute Force Attack",
+    "rule_level": 7,
+    "source_ip": "10.0.0.5",
+    "message": "Failed password for root"
+  }'
 ```
 
 ---
@@ -232,7 +239,7 @@ curl -X POST "http://localhost:8000/api/v1/publish?alert_id=alert-001"
 | `WAZUH_API_URL` | http://localhost:55000 | URL Wazuh API |
 | `WAZUH_API_USER` | wazuh-wui | Пользователь Wazuh API |
 | `WAZUH_API_PASS` | wazuh-wui | Пароль Wazuh API |
-| `WAZUH_MOCK` | true | Использовать mock SIEM |
+| `USE_RABBITMQ` | false | Включить RabbitMQ |
 | `CONNECTOR_HOST` | 0.0.0.0 | Хост для FastAPI |
 | `CONNECTOR_PORT` | 8000 | Порт для FastAPI |
 
@@ -279,7 +286,7 @@ connector/
                           pull-режим:
                           GET /api/v1/alerts
                           GET /api/v1/alerts/{id}
-                          POST /api/v1/publish?alert_id=X
+                           POST /api/v1/publish (body: {"alert_id": "X"})
                           POST /api/v1/plan/{id}
 
 Wazuh API ────► Connector ────► RabbitMQ ────► Agent

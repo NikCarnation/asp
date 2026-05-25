@@ -40,13 +40,15 @@ async def lifespan(app: FastAPI):
     global categorizer, planner, vector_store, pipeline
 
     categorizer = Categorizer(
-        base_url=config.ollama_base_url,
+        base_url=config.llm_base_url,
         model=config.small_llm_model,
+        api_key=config.llm_api_key,
     )
 
     planner = Planner(
-        base_url=config.ollama_base_url,
+        base_url=config.llm_base_url,
         model=config.large_llm_model,
+        api_key=config.llm_api_key,
     )
 
     vector_store = VectorStore(

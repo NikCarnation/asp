@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Add a test alert directly to the Wazuh indexer (OpenSearch)."""
 
 import argparse
 import json

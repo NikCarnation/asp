@@ -91,41 +91,33 @@ async def get_alerts(
     if not siem_client:
         raise HTTPException(status_code=503, detail="SIEM client not initialized")
 
-
-    args_list = [source_ip, destination_ip, rule_id, rule_description, rule_level_max, rule_level_min, protocol, agent_id, agent_name, full_log, location, user_name, rule_groups ]
     filters = {}
-    # if source_ip is not None:
-    #     filters["source_ip"] = source_ip
-    # if destination_ip is not None:
-    #     filters["destination_ip"] = destination_ip
-    # if rule_id is not None:
-    #     filters["rule_id"] = rule_id
-    # if rule_level_min is not None:
-    #     filters["rule_level_min"] = rule_level_min
-    # if rule_level_max is not None:
-    #     filters["rule_level_max"] = rule_level_max
-    # if protocol is not None:
-    #     filters["protocol"] = protocol
-    # if user_name is not None:
-    #     filters["user_name"] = user_name
-    # if agent_id is not None:
-    #     filters["agent_id"] = agent_id
-    # if agent_name is not None:
-    #     filters["agent_name"] = agent_name
-    # if location is not None:
-    #     filters["location"] = location
-    # if rule_groups is not None:
-    #     filters["rule_groups"] = [g.strip() for g in rule_groups.split(",") if g.strip()]
-    # if rule_description is not None:
-    #     filters["rule_description"] = rule_description
-    # if full_log is not None:
-    #     filters["full_log"] = full_log
-        
-    for arg in args_list:
-        if arg is not None:
-            filters[f"{arg}"] = arg
-            if arg == rule_groups:
-                filters[f"{arg}"] = [g.strip() for g in rule_groups.split(",") if g.strip()]
+    if source_ip is not None:
+        filters["source_ip"] = source_ip
+    if destination_ip is not None:
+        filters["destination_ip"] = destination_ip
+    if rule_id is not None:
+        filters["rule_id"] = rule_id
+    if rule_level_min is not None:
+        filters["rule_level_min"] = rule_level_min
+    if rule_level_max is not None:
+        filters["rule_level_max"] = rule_level_max
+    if protocol is not None:
+        filters["protocol"] = protocol
+    if user_name is not None:
+        filters["user_name"] = user_name
+    if agent_id is not None:
+        filters["agent_id"] = agent_id
+    if agent_name is not None:
+        filters["agent_name"] = agent_name
+    if location is not None:
+        filters["location"] = location
+    if rule_groups is not None:
+        filters["rule_groups"] = [g.strip() for g in rule_groups.split(",") if g.strip()]
+    if rule_description is not None:
+        filters["rule_description"] = rule_description
+    if full_log is not None:
+        filters["full_log"] = full_log
 
 
     try:

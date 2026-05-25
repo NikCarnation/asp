@@ -1,21 +1,15 @@
 from langchain_openai import ChatOpenAI
 
 from agent.models.schemas import IncidentCategory, NormalizedAlert
-
-CATEGORIZE_SYSTEM_PROMPT = """You are an AI SOC analyst. Your task is to categorize security alerts into incident types.
-
-Analyze the alert data and determine the most likely incident category.
-Return the category, confidence score, and a brief explanation.
-
-Categories: brute-force, web-exploit, malware, phishing, reconnaissance, unauthorized-access, data-exfiltration, denial-of-service, policy-violation, unknown"""
+from agent.prompts import CATEGORIZE_SYSTEM_PROMPT
 
 
 class Categorizer:
-    def __init__(self, base_url: str, model: str):
+    def __init__(self, base_url: str, model: str, api_key: str = ""):
         self.llm = ChatOpenAI(
             base_url=base_url,
             model=model,
-            api_key="ollama",
+            api_key=api_key or "ollama",
             temperature=0.1,
             max_tokens=150,
         ).with_structured_output(IncidentCategory)

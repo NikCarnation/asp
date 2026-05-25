@@ -33,16 +33,16 @@
 | **RabbitMQ** | aio-pika | 5672 | Брокер сообщений для буферизации |
 | **Agent** | FastAPI + LangGraph | 8001 | Категоризация → RAG → генерация плана |
 | **Chroma** | chromadb | 8002 | Векторная БД для поиска плейбуков |
-| **Ollama** | OpenAI API | 11434 | Локальный LLM сервер |
+| **Ollama / Cloud LLM** | OpenAI API | 11434 / внешний | LLM сервер (локальный или облачный) |
 
 ### Поток данных
 
 ```
 SIEM → Connector → RabbitMQ → Agent → план анализа
-                                 │
-                  ┌──────────────┼──────────────┐
-                  ▼              ▼              ▼
-            Categorizer       RAG          Planner
+                                  │
+                   ┌──────────────┼──────────────┐
+                   ▼              ▼              ▼
+             Categorizer       RAG          Planner
 ```
 
 ---
@@ -103,6 +103,7 @@ GET /api/v1/alerts?limit=100&offset=0
 GET /api/v1/alerts?source_ip=10.0.0.5&rule_level_min=7&rule_level_max=10
 GET /api/v1/alerts/{alert_id}
 ```
+
 Поддерживаемые фильтры: `source_ip`, `destination_ip`, `rule_id`, `rule_level_min`, `rule_level_max`, `protocol`, `user_name`, `agent_id`, `agent_name`, `location`, `rule_groups`, `rule_description`, `full_log`, `start_date`, `end_date`.
 
 #### Публикация в очередь
@@ -224,6 +225,12 @@ uvicorn agent.main:app --host 127.0.0.1 --port 8001 --reload
 docker compose up agent
 ```
 
+**С облачной LLM (без Ollama):**
+```env
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-...
+```
+
 ### 3.5. API Endpoints
 
 ```
@@ -243,11 +250,12 @@ POST /api/v1/playbooks/reload → перезагрузить плейбуки в
 | `RABBITMQ_USER` | `guest` | Пользователь |
 | `RABBITMQ_PASS` | `guest` | Пароль |
 | `RABBITMQ_QUEUE` | `aisoc_alerts` | Имя очереди |
-| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | URL Ollama API |
-| `SMALL_LLM_MODEL` | `ministral-3:8b` | Модель для категоризации |
-| `LARGE_LLM_MODEL` | `qwen3.6:27b` | Модель для планов |
+| `LLM_BASE_URL` | `http://localhost:11434/v1` | URL OpenAI-совместимого API |
+| `LLM_API_KEY` | *(пусто)* | API-ключ (пустой для Ollama) |
+| `SMALL_LLM_MODEL` | `gemma2:2b` | Модель для категоризации |
+| `LARGE_LLM_MODEL` | `gemma2:2b` | Модель для планов |
 | `CHROMA_HOST` | `localhost` | Хост Chroma |
-| `CHROMA_PORT` | `8002` | Порт Chroma API |
+| `CHROMA_PORT` | `8002` | Порт Chroma API (внешний) |
 | `CHROMA_COLLECTION` | `aisoc_playbooks` | Имя коллекции |
 | `AGENT_HOST` | `0.0.0.0` | Хост FastAPI |
 | `AGENT_PORT` | `8001` | Порт FastAPI |
@@ -261,9 +269,10 @@ POST /api/v1/playbooks/reload → перезагрузить плейбуки в
 
 Использует `langchain_openai.ChatOpenAI.with_structured_output(IncidentCategory)`.
 
-- **Модель:** `ministral-3:8b` (Small LLM)
+- **Модель:** `gemma2:2b` (Small LLM, настраивается через `SMALL_LLM_MODEL`)
 - **Temperature:** 0.1 (низкая — детерминированные ответы)
 - **Max tokens:** 150
+- **API Key:** из `LLM_API_KEY` (пустой для Ollama → fallback "ollama")
 - **Системный промпт:** инструктирует LLM категоризировать алерты
 - **Структура ответа:** `IncidentCategory(category, confidence, description)`
 - **Ошибка:** возвращает `unknown` с `confidence=0.0`
@@ -304,12 +313,13 @@ denial-of-service, policy-violation, unknown
 
 Использует `langchain_openai.ChatOpenAI.with_structured_output(_PlanOutput)`.
 
-- **Модель:** `qwen3.6:27b` (Large LLM)
+- **Модель:** `gemma2:2b` (Large LLM, настраивается через `LARGE_LLM_MODEL`)
 - **Temperature:** 0.2
 - **Max tokens:** 2000
+- **API Key:** из `LLM_API_KEY` (пустой для Ollama → fallback "ollama")
 - **На вход:** алерт + категория + плейбуки
 - **На выходе:** `AnalysisPlan` со summary, steps (с командами), raw_markdown
-- **Ошибка:** возвращает план с шагом "Manual Analysis Required"
+- **Ошибка:** возвращает план с описанием ошибки
 
 ---
 
@@ -385,8 +395,8 @@ class Playbook(BaseModel):
 ### 6.1. Предварительные требования
 
 - Python 3.12+
-- Docker (для RabbitMQ и Chroma) — или запущенный вручную RabbitMQ + Chroma
-- Ollama с моделями
+- Docker (для RabbitMQ и Chroma) — или запущенные вручную сервисы
+- LLM: Ollama с моделями или API-ключ облачного провайдера
 
 ### 6.2. Установка зависимостей
 
@@ -406,10 +416,17 @@ cp .env.example .env
 
 Ключевые параметры:
 ```env
-# LLM
-OLLAMA_BASE_URL=http://localhost:11434/v1
-SMALL_LLM_MODEL=ministral-3:8b      # или phi3:mini
-LARGE_LLM_MODEL=qwen3.6:27b         # или llama3.1:8b
+# LLM — Ollama (локально)
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_API_KEY=
+SMALL_LLM_MODEL=gemma2:2b
+LARGE_LLM_MODEL=gemma2:2b
+
+# LLM — облачный провайдер (раскомментировать нужное)
+# LLM_BASE_URL=https://api.openai.com/v1
+# LLM_API_KEY=sk-...
+# SMALL_LLM_MODEL=gpt-4o-mini
+# LARGE_LLM_MODEL=gpt-4o
 
 # RabbitMQ
 RABBITMQ_HOST=localhost
@@ -441,12 +458,10 @@ docker run -d --name chroma -p 8002:8000 chromadb/chroma:latest
 ollama serve
 
 # Скачать модели (если ещё нет)
-ollama pull ministral-3:8b
-ollama pull qwen3.6:27b
+ollama pull gemma2:2b
 
-# Проверить GPU
+# Проверить GPU (опционально)
 nvidia-smi
-# Во время работы модели должен появиться процесс ollama с GPU Memory > 0
 ```
 
 ### 6.6. Запуск микросервисов
@@ -471,7 +486,7 @@ uvicorn agent.main:app --host 127.0.0.1 --port 8001 --reload
 docker compose up --build
 ```
 
-> **Важно:** Ollama в compose закомментирован. Если нужен в Docker — раскомментируйте раздел `ollama` в `docker-compose.yml`.
+Поднимает 5 сервисов: rabbitmq, ollama, chroma, connector, agent.
 
 ---
 
@@ -504,7 +519,6 @@ curl -X POST "http://127.0.0.1:8001/api/v1/process" \
 ```
 
 Ответ — план анализа в JSON.
-В терминале агента — пошаговый лог с таймингом.
 
 ### 7.3. Отправка через коннектор (полный пайплайн)
 
@@ -545,6 +559,9 @@ python scripts/check_indexer.py
 
 # Добавить тестовые алерты в индексер
 python scripts/add_alert.py --count 5 --level 7
+
+# Добавить конкретный алерт
+python scripts/add_alert.py --rule-name "SSH Brute Force" --level 10
 ```
 
 ---
@@ -556,6 +573,14 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     ports: ["5672:5672", "15672:15672"]
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: [ollama_data:/root/.ollama, ./scripts/ollama-init.sh:/scripts/ollama-init.sh]
+    environment: [OLLAMA_HOST: ${OLLAMA_HOST}]
+    entrypoint: [/bin/sh, /scripts/ollama-init.sh]
+    command: [${SMALL_LLM_MODEL}, ${LARGE_LLM_MODEL}]
 
   chroma:
     image: chromadb/chroma:latest
@@ -569,7 +594,12 @@ services:
   agent:
     build: {context: ., dockerfile: Dockerfile.agent}
     ports: ["8001:8001"]
-    depends_on: [rabbitmq, chroma]
+    depends_on: [rabbitmq, ollama, chroma]
+    environment:
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      SMALL_LLM_MODEL: ${SMALL_LLM_MODEL}
+      LARGE_LLM_MODEL: ${LARGE_LLM_MODEL}
 ```
 
 Запуск:
@@ -645,10 +675,22 @@ curl -X POST http://127.0.0.1:8001/api/v1/playbooks/reload
 2. Реализовать `fetch_alerts()`, `get_alert_by_id()`, `send_plan()`
 3. Зарегистрировать в `connector/main.py`
 
-### Использовать OpenRouter вместо Ollama
-1. Установить `OPENROUTER_API_KEY` в `.env`
-2. Добавить `OPENROUTER_BASE_URL`
-3. Изменить `api_key` и `base_url` в `Categorizer` и `Planner`
+### Использовать облачную LLM (OpenAI / OpenRouter)
+Достаточно изменить переменные в `.env`:
+```env
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-...
+SMALL_LLM_MODEL=gpt-4o-mini
+LARGE_LLM_MODEL=gpt-4o
+```
+
+Никаких изменений кода не требуется.
+
+### Привязать Ollama к определённой версии
+Если `ollama/ollama:latest` работает нестабильно — укажите конкретную версию в `docker-compose.yml`:
+```yaml
+image: ollama/ollama:0.5.4
+```
 
 ---
 
@@ -656,14 +698,14 @@ curl -X POST http://127.0.0.1:8001/api/v1/playbooks/reload
 
 | Файл | Строк | Назначение |
 |------|-------|------------|
-| `agent/main.py` | 126 | FastAPI + RabbitMQ consumer |
+| `agent/main.py` | 129 | FastAPI + RabbitMQ consumer |
 | `agent/agent.py` | 129 | LangGraph pipeline |
 | `agent/categorizer.py` | 44 | Категоризация алертов |
 | `agent/planner.py` | 86 | Генерация плана |
 | `agent/pipeline.py` | 38 | Обёртка над графом |
-| `agent/config.py` | 24 | Конфигурация агента |
+| `agent/config.py` | 27 | Конфигурация агента |
 | `agent/models/schemas.py` | 50 | Модели данных |
-| `agent/rag/knowledge_base.py` | 34 | Загрузка плейбуков |
+| `agent/rag/knowledge_base.py` | 34 | Загрузка плейбуков из knowledge/*.md |
 | `agent/rag/vector_store.py` | 76 | ChromaDB клиент |
 | `connector/main.py` | 264 | FastAPI + эндпоинты |
 | `connector/config.py` | 31 | Конфигурация коннектора |
@@ -674,7 +716,7 @@ curl -X POST http://127.0.0.1:8001/api/v1/playbooks/reload
 | `connector/normalizer/wazuh/wazuh_normalizer.py` | 192 | Wazuh→ECS парсер |
 | `connector/webhook/listener.py` | 51 | Webhook эндпоинты |
 | `knowledge/*.md` | ~27 | Плейбуки (6 шт.) |
-| `.env` | 37 | Конфигурация окружения |
-| `docker-compose.yml` | 87 | Оркестрация контейнеров |
+| `.env` | 40 | Конфигурация окружения |
+| `docker-compose.yml` | 103 | Оркестрация контейнеров |
 | `requirements.txt` | 16 | Python зависимости |
-| `main.py` | 54 | Точка входа |
+| `main.py` | 54 | Точка входа (AISOC_MODE) |

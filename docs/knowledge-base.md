@@ -22,16 +22,30 @@ Categorizer ──► VectorStore.search() ──► Planner
 
 ### 1. Плейбуки (Playbook)
 
-`agent/rag/knowledge_base.py` — содержит встроенную базу знаний из 6 плейбуков.
+`agent/rag/knowledge_base.py` — загружает базу знаний из markdown-файлов директории `knowledge/`.
 
 **Модель данных:**
 
 ```python
 class Playbook(BaseModel):
-    title: str           # Название плейбука
-    category: str        # Категория (brute-force, web-exploit, ...)
+    title: str           # Название плейбука (из первой строки # ...)
+    category: str        # Категория (из имени файла: brute-force.md → "brute-force")
     content: str         # Полный текст плейбука (Markdown)
     source: str | None   # Источник (например "AISOC Knowledge Base")
+```
+
+**Загрузка из файлов:**
+
+```python
+KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent.parent / "knowledge"
+
+def _load_playbooks() -> list[Playbook]:
+    for md_file in sorted(KNOWLEDGE_DIR.glob("*.md")):
+        category = md_file.stem          # "brute-force"
+        content = md_file.read_text(...)
+        title = первая строка # ...
+        playbooks.append(Playbook(title=title, category=category, content=content, ...))
+    return playbooks
 ```
 
 **Список плейбуков:**
@@ -58,7 +72,6 @@ class Playbook(BaseModel):
 CATEGORY_PLAYBOOK_MAP: dict[str, Playbook] = {
     pb.category: pb for pb in ALL_PLAYBOOKS
 }
-# {'brute-force': Playbook(...), 'web-exploit': Playbook(...), ...}
 ```
 
 Этот маппинг используется как fallback, когда VectorStore пуст или поиск не дал результатов.
@@ -168,7 +181,7 @@ elif not playbooks:
 
 ## Markdown-файлы базы знаний
 
-Директория `knowledge/` содержит Markdown-копии плейбуков для удобства редактирования:
+Директория `knowledge/` содержит Markdown-файлы плейбуков. **Именно они являются источником данных** — `knowledge_base.py` читает их при запуске:
 
 ```
 knowledge/
@@ -180,11 +193,12 @@ knowledge/
 └── policy-violation.md
 ```
 
-Содержимое этих файлов **дублирует** плейбуки из `knowledge_base.py`. При необходимости:
-1. Отредактировать `.md` файл
-2. Обновить соответствующий `Playbook(...)` в `knowledge_base.py`
-
-В будущем можно реализовать авто-загрузку из `.md` файлов, убрав дублирование.
+Чтобы изменить или добавить плейбук:
+1. Отредактировать существующий `.md` файл или создать новый
+2. Перезагрузить плейбуки через API:
+   ```bash
+   curl -X POST http://localhost:8001/api/v1/playbooks/reload
+   ```
 
 ---
 

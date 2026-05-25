@@ -33,14 +33,15 @@
 
 | Режим | Направление | Применение |
 |-------|-----------|------------|
-| REST API Polling | Agent → SIEM | Получение списка алертов, контекста по ID, публикация по запросу |
-| Webhook | SIEM → Agent | Мгновенное получение новых алертов от SIEM |
+| REST API Polling | Connector → SIEM | Получение списка алертов, контекста по ID, публикация по запросу |
+| Webhook | SIEM → Connector | Мгновенное получение новых алертов от SIEM |
 
 Выполняет нормализацию сырых событий в формат **ECS (Elastic Common Schema)**.
 
 **Ключевые файлы:**
 - `connector/main.py` — FastAPI-приложение, маршруты
-- `connector/siem_clients/wazuh.py` — WazuhClient (+ MockWazuhClient)
+- `connector/siem_clients/indexer.py` — IndexerClient (Wazuh Indexer / OpenSearch)
+- `connector/siem_clients/wazuh.py` — WazuhClient (Wazuh Manager API)
 - `connector/normalizer/ecs.py` — нормализация Wazuh → ECS
 - `connector/broker/rabbit.py` — RabbitPublisher
 - `connector/webhook/listener.py` — webhook-эндпоинты
@@ -61,16 +62,16 @@
 
 | Подсистема | Компонент | Технология |
 |-----------|-----------|-----------|
-| Категоризация | Small LLM | phi3:mini (2.7B params) |
+| Категоризация | Small LLM | OpenAI-совместимая модель (Ollama / облачный провайдер) |
 | База знаний | Vector Store | Chroma DB + семантический поиск |
-| Планирование | Large LLM | llama3.1:8b (8B params) |
+| Планирование | Large LLM | OpenAI-совместимая модель (Ollama / облачный провайдер) |
 
 **Ключевые файлы:**
 - `agent/pipeline.py` — оркестратор пайплайна
 - `agent/categorizer.py` — категоризация через малую LLM
 - `agent/planner.py` — формирование плана через большую LLM
 - `agent/rag/vector_store.py` — клиент Chroma DB
-- `agent/rag/knowledge_base.py` — встроенные плейбуки
+- `agent/rag/knowledge_base.py` — загрузка плейбуков из `knowledge/*.md`
 
 ### 4. База знаний (Chroma DB)
 
@@ -111,8 +112,8 @@
 | API-фреймворк | FastAPI | ≥0.115 |
 | Брокер сообщений | RabbitMQ (aio-pika) | ≥9.0 |
 | Векторная БД | Chroma DB | ≥0.5 |
-| Малая LLM | phi3:mini (Ollama) | — |
-| Большая LLM | llama3.1:8b (Ollama) | — |
+| Малая LLM | gemma2:2b / любая OpenAI-совместимая | Через Ollama или облачного провайдера |
+| Большая LLM | gemma2:2b / любая OpenAI-совместимая | Через Ollama или облачного провайдера |
 | HTTP-клиент | httpx | ≥0.27 |
 | Конфигурация | Pydantic Settings | ≥2.0 |
 | Контейнеризация | Docker Compose | — |
@@ -123,11 +124,11 @@
 Connector ──port 8000──► RabbitMQ ──port 5672──► Agent ──port 8001
      │                                               │
      │  pull: GET /security/alerts                   │
-     │  push: POST /webhook/wazuh                    │  LLM: Ollama:11434
-     │  plan: POST /security/alerts/context           │  RAG: Chroma:8000
+     │  push: POST /webhook/wazuh                    │  LLM: LLM_BASE_URL
+     │  plan: POST /security/alerts/context           │  RAG: Chroma:8002
      │                                               │
      ▼                                               ▼
-  Wazuh API                                      Ollama / Chroma
+  Wazuh API                                      LLM / Chroma
 ```
 
 ## Документация модулей
