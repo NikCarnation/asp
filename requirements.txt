@@ -14,3 +14,6 @@ langchain-core
 langchain-ollama==0.3.5
 langchain-openai==0.3.28
 langgraph==0.5.3
+
+# RAG (local Chroma with langchain integration)
+langchain-chroma>=0.2.0

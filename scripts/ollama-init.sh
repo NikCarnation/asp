@@ -15,5 +15,8 @@ for model in "$@"; do
   ollama pull "$model"
 done
 
+echo "Pulling embedding model: nomic-embed-text"
+ollama pull nomic-embed-text
+
 echo "All models ready. Server running."
 wait "$SERVER_PID"

@@ -73,7 +73,11 @@ def create_agent(
         _log(verbose, SEP)
         _log(verbose, f"  Query: category={cat.category}, rule={alert.rule_name}")
 
-        playbooks = vector_store.search(category=cat.category, query=alert.rule_name)
+        playbooks = vector_store.search(
+            category=cat.category,
+            query=alert.rule_name,
+            alert_message=alert.message,
+        )
         if not playbooks and cat.category in CATEGORY_PLAYBOOK_MAP:
             playbooks = [CATEGORY_PLAYBOOK_MAP[cat.category]]
             _log(verbose, "  Source: fallback (CATEGORY_PLAYBOOK_MAP)")

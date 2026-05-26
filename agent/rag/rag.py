@@ -14,14 +14,14 @@ import numpy as np
 load_dotenv()
 
 
-# model = ChatOllama(
-#     model="ministral-3:8b",
-#     base_url="http://localhost:11434",
-#     temperature=0.0,
-#     num_predict=2048  
-# )
+model = ChatOllama(
+    model="ministral-3:8b",
+    base_url="http://localhost:11434",
+    temperature=0.0,
+    num_predict=2048  
+)
 
-model = ChatQwen(model="qwen/qwen3-vl-30b-a3b-thinking", api_key=os.getenv('OPENROUTER_API_KEY'), base_url='https://openrouter.ai/api/v1/', temperature=0.0)
+# model = ChatQwen(model="qwen/qwen3-vl-30b-a3b-thinking", api_key=os.getenv('OPENROUTER_API_KEY'), base_url='https://openrouter.ai/api/v1/', temperature=0.0)
 
 database_path = os.getenv("knowbase_path")
 vector_store_dir = os.getenv("database_path")

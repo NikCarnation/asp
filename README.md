@@ -1,4 +1,4 @@
-# AISOC — AI Agent System for Information Security Event Analysis
+# ASP — Agentic SOC Platform 
 
 Агентная система для автоматизации анализа событий информационной безопасности.
 
@@ -10,10 +10,10 @@ SIEM (Wazuh) → Connector → RabbitMQ → Agent System → SIEM Dashboard
 ```
 
 - **Connector** — микросервис для взаимодействия с SIEM. Получает алерты (REST poll + webhook), нормализует в ECS, отправляет в очередь RabbitMQ.
-- **Agent System** — получает события из очереди, категоризирует (Small LLM), ищет плейбуки (RAG + Chroma), формирует план анализа (Large LLM).
+- **Agent System** — получает события из очереди, категоризирует (Small LLM), ищет плейбуки (RAG + векторное хранилище), формирует план анализа (Large LLM).
 - **RabbitMQ** — брокер сообщений для буферизации и гарантированной доставки.
 - **Wazuh** — SIEM система (тестовая среда).
-- **База знаний** — векторная БД Chroma с плейбуками по типам инцидентов.
+- **База знаний** — векторное хранилище Chroma (локальный SQLite) с плейбуками по типам инцидентов.
 
 ## Быстрый старт
 
@@ -31,8 +31,7 @@ docker compose up --build
 
 Поднимает:
 - `rabbitmq` — брокер сообщений (порт 5672, management UI на 15672)
-- `ollama` — LLM сервер (порт 11434)
-- `chroma` — векторная БД (порт 8002)
+- `ollama` — LLM сервер (порт 11434) + эмбеддинги
 - `connector` — микросервис-коннектор (порт 8000)
 - `agent` — агентная система (порт 8001)
 
@@ -130,7 +129,8 @@ curl -X POST "http://localhost:8000/api/v1/publish" \
 | `RABBITMQ_HOST` | localhost | Хост RabbitMQ |
 | `RABBITMQ_PORT` | 5672 | Порт RabbitMQ |
 | `RABBITMQ_QUEUE` | aisoc_alerts | Имя очереди |
-| `CHROMA_HOST` | localhost | Хост Chroma |
+| `CHROMA_PERSIST_DIR` | ./chroma_data | Директория локального Chroma |
+| `EMBEDDING_MODEL` | nomic-embed-text | Модель эмбеддингов (Ollama) |
 
 Для использования облачного провайдера (OpenAI, OpenRouter) достаточно изменить 4 переменные:
 

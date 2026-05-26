@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AISOC Dashboard</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}
+nav{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:20px}
+nav h1{font-size:18px;font-weight:600}
+nav a{color:var(--accent);text-decoration:none;cursor:pointer;padding:4px 10px;border-radius:4px}
+nav a:hover{background:var(--border);color:var(--text)}
+.page{display:none;max-width:1200px;margin:0 auto;padding:20px}
+.page.active{display:block}
+h2{margin-bottom:16px;font-size:20px}
+.btn{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+.btn:hover{background:var(--border)}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.2)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-bottom:20px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px}
+.card h4{font-size:13px;color:var(--muted);margin-bottom:6px}
+.card .val{font-size:13px}
+.ok{color:var(--green)}
+.fail{color:var(--red)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+.links{display:flex;flex-wrap:wrap;gap:8px}
+.links a{color:var(--accent);text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px}
+.links a:hover{background:var(--border)}
+.console-form{display:flex;flex-direction:column;gap:10px;max-width:800px}
+.console-row{display:flex;gap:8px;align-items:center}
+.console-row label{min-width:70px;color:var(--muted);font-size:13px}
+.console-row input,.console-row select{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;font-size:13px;flex:1}
+.console-row textarea{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:4px;font-size:13px;font-family:monospace;width:100%;min-height:100px}
+#console-res{background:#000;border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:10px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:400px;overflow:auto;display:none}
+#console-res .info{color:var(--muted);font-size:12px;margin-bottom:6px}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)}
+th{color:var(--muted);background:var(--surface);position:sticky;top:0}
+tr:hover{background:var(--surface)}
+.row-detail{background:#000;border:1px solid var(--border);border-radius:6px;padding:12px;margin:6px 0;font-size:12px}
+.row-detail h5{color:var(--accent);margin-bottom:6px;cursor:pointer}
+.row-detail pre{white-space:pre-wrap;overflow-x:auto;max-height:300px}
+.pagination{display:flex;align-items:center;gap:8px;margin-top:10px}
+.pagination span{color:var(--muted);font-size:13px}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);padding:10px 16px;border-radius:6px;display:none;z-index:999}
+.toast.show{display:block}
+.empty{padding:20px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<nav>
+  <h1>AISOC Dashboard</h1>
+  <a class="active" onclick="showPage('dashboard')">Dashboard</a>
+  <a onclick="showPage('console')">API Console</a>
+  <a onclick="showPage('history')">History</a>
+</nav>
+
+<div id="page-dashboard" class="page active">
+  <div class="actions">
+    <button class="btn primary" onclick="checkHealth()">Check Health</button>
+    <button class="btn" onclick="sendTestWebhook()">Test Webhook</button>
+    <button class="btn" onclick="fetchAlerts()">Fetch Alerts</button>
+    <button class="btn" onclick="listPlaybooks()">Playbooks</button>
+  </div>
+  <div class="cards" id="health-cards">
+    <div class="card"><h4>Connector</h4><div class="val muted">click "Check Health"</div></div>
+    <div class="card"><h4>Agent</h4><div class="val muted">click "Check Health"</div></div>
+    <div class="card"><h4>RabbitMQ</h4><div class="val muted">click "Check Health"</div></div>
+    <div class="card"><h4>Ollama</h4><div class="val muted">click "Check Health"</div></div>
+    <div class="card"><h4>Knowledge Base</h4><div class="val muted">click "Check Health"</div></div>
+  </div>
+  <h2>Quick Links</h2>
+  <div class="links">
+    <a href="http://localhost:8000/docs" target="_blank">Connector API</a>
+    <a href="http://localhost:8001/docs" target="_blank">Agent API</a>
+    <a href="http://localhost:15672" target="_blank">RabbitMQ</a>
+    <a href="https://host.docker.internal:55000" target="_blank">Wazuh</a>
+  </div>
+</div>
+
+<div id="page-console" class="page">
+  <h2>API Console</h2>
+  <div class="console-form">
+    <div class="console-row">
+      <label>Method</label>
+      <select id="con-method"><option>GET</option><option selected>POST</option><option>PUT</option><option>DELETE</option></select>
+    </div>
+    <div class="console-row">
+      <label>URL</label>
+      <input id="con-url" value="http://localhost:8000/api/v1/alerts">
+    </div>
+    <div class="console-row">
+      <label>Body</label>
+      <textarea id="con-body" placeholder='{"key":"value"}'></textarea>
+    </div>
+    <div>
+      <button class="btn primary" onclick="sendReq()">Send</button>
+      <button class="btn" onclick="document.getElementById('console-res').style.display='none'">Clear</button>
+    </div>
+  </div>
+  <div id="console-res"></div>
+</div>
+
+<div id="page-history" class="page">
+  <h2>Analysis History</h2>
+  <div>
+    <button class="btn primary" onclick="refreshHistory()">Refresh</button>
+  </div>
+  <div id="history-body"><div class="empty">Click Refresh</div></div>
+  <div class="pagination" id="history-pages"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const C='http://localhost:8000',A='http://localhost:8001';
+function $(id){return document.getElementById(id)}
+function toast(msg,ok){
+  const t=$('toast');t.textContent=msg;t.style.borderColor=ok?'var(--green)':'var(--red)';t.classList.add('show');
+  clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),3000);
+}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function fetchTO(url,opt,ms){
+  const c=new AbortController();const id=setTimeout(()=>c.abort(),ms||5000);
+  return fetch(url,{...opt,signal:c.signal}).finally(()=>clearTimeout(id));
+}
+function showPage(n){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
+  document.getElementById('page-'+n).classList.add('active');
+  document.querySelector(`nav a[onclick*="${n}"]`).classList.add('active');
+}
+async function checkHealth(){
+  const cards=$('health-cards');
+  const items=[
+    {lbl:'Connector',url:C+'/health'},
+    {lbl:'Agent',url:A+'/health'},
+    {lbl:'RabbitMQ',url:C+'/health/rabbitmq',fmt:d=>d.status},
+    {lbl:'Ollama',url:A+'/health',fmt:d=>'OK '+(d.small_llm||'')},
+    {lbl:'Knowledge Base',url:A+'/api/v1/playbooks',fmt:d=>'OK ('+(d.playbooks||[]).length+' playbooks)'},
+  ];
+  for(const[i,item]of items.entries()){
+    cards.querySelector(`.card:nth-child(${i+1}) .val`).textContent='checking…';
+  }
+  await Promise.allSettled(items.map(async(item,i)=>{
+    const el=cards.querySelector(`.card:nth-child(${i+1}) .val`);
+    try{
+      const r=await fetchTO(item.url);
+      if(!r.ok){el.innerHTML='<span class="fail">ERR '+r.status+'</span>';return}
+      const d=await r.json();
+      el.innerHTML='<span class="ok">'+(item.fmt?item.fmt(d):'OK')+'</span>';
+    }catch(e){el.innerHTML='<span class="fail">ERR '+e.message+'</span>'}
+  }));
+}
+async function sendTestWebhook(){
+  try{
+    const r=await fetchTO(C+'/webhook/wazuh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:{id:'test-'+Date.now(),rule:{id:'5710',name:'Test',level:7,description:'Manual test webhook'},srcip:'192.168.1.100',dstip:'10.0.0.5',full_log:'Test alert from dashboard'}})});
+    const d=await r.json();toast(r.ok?'Sent: '+d.event_id:'Error: '+JSON.stringify(d),r.ok);
+  }catch(e){toast('Error: '+e.message,false)}
+}
+async function fetchAlerts(){
+  try{const r=await fetchTO(C+'/api/v1/alerts?limit=5');const d=await r.json();toast(r.ok?'Alerts: '+(d.count||0):'Error: '+(d.detail||r.status),r.ok)}catch(e){toast('Error: '+e.message,false)}
+}
+async function listPlaybooks(){
+  try{const r=await fetchTO(A+'/api/v1/playbooks');const d=await r.json();toast(r.ok?'Playbooks: '+(d.playbooks||[]).length:'Error: '+(d.detail||r.status),r.ok)}catch(e){toast('Error: '+e.message,false)}
+}
+async function sendReq(){
+  const res=$('console-res');res.style.display='block';res.innerHTML='<span class="muted">sending…</span>';
+  const method=$('con-method').value,url=$('con-url').value.trim();
+  let body=null;const b=$('con-body').value.trim();
+  if(b){try{body=JSON.parse(b)}catch{body=b}}
+  try{
+    const r=await fetchTO(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+    const status=r.status+' '+r.statusText;let data;try{data=await r.json()}catch{data=await r.text()}
+    res.innerHTML='<div class="info">Status: '+esc(status)+'</div><pre>'+esc(JSON.stringify(data,null,2))+'</pre>';
+  }catch(e){res.innerHTML='<div class="info">Error</div><pre>'+esc(e.message)+'</pre>'}
+}
+let histOff=0;
+async function refreshHistory(){
+  const body=$('history-body');body.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    const r=await fetchTO(A+'/api/v1/analyses?limit=20&offset='+histOff);
+    const d=await r.json();
+    if(!r.ok){body.innerHTML='<div class="empty">Error '+(d.detail||r.status)+'</div>';return}
+    const rows=d.analyses||[];
+    if(!rows.length){body.innerHTML='<div class="empty">No analyses yet</div>';$('history-pages').innerHTML='';return}
+    let html='<div class="table-wrap"><table><tr><th>ID</th><th>Alert ID</th><th>Time</th><th>Category</th><th>Steps</th><th>Duration</th><th></th></tr>';
+    for(const a of rows){
+      html+=`<tr onclick="loadDetail(${a.id},this)">
+        <td>${a.id}</td><td>${esc(a.alert_id)}</td><td>${esc(new Date(a.created_at).toLocaleString())}</td>
+        <td>${esc(a.category||'?')}</td><td>${a.steps_count||0}</td>
+        <td>${a.duration_seconds!=null?a.duration_seconds.toFixed(1)+'s':'-'}</td>
+        <td><span style="font-size:11px;color:var(--accent)">view</span></td>
+      </tr><tr id="det-${a.id}" style="display:none"><td colspan="7"><div class="empty">Loading…</div></td></tr>`;
+    }
+    html+='</table></div>';body.innerHTML=html;
+    const total=d.total||0,pg=Math.ceil(total/20),cp=Math.floor(histOff/20)+1;
+    $('history-pages').innerHTML=(`<button class="btn" onclick="histOff=Math.max(0,histOff-20);refreshHistory()" ${histOff<=0?'disabled':''}>Prev</button>`+
+      `<span>Page ${cp} of ${Math.max(1,pg)}</span>`+
+      `<button class="btn" onclick="histOff=Math.min(${total-20},histOff+20);refreshHistory()" ${histOff+20>=total?'disabled':''}>Next</button>`);
+  }catch(e){body.innerHTML='<div class="empty">Error: '+e.message+'</div>'}
+}
+async function loadDetail(id,row){
+  const det=document.getElementById('det-'+id);if(!det)return;
+  if(det.style.display!='none'){det.style.display='none';row.classList.remove('expanded');return}
+  det.style.display='table-row';row.classList.add('expanded');
+  if(det.dataset.loaded)return;
+  try{
+    const r=await fetchTO(A+'/api/v1/analyses/'+id);const a=await r.json();
+    det.dataset.loaded='1';
+    let h='<td colspan="7"><div class="row-detail">';
+    const sections=[
+      ['Raw SIEM Alert',a.raw_alert],
+      ['Normalized Alert',a.normalized_alert],
+      ['Category',{category:a.category,confidence:a.confidence,description:a.category_description}],
+      ['RAG',{query:a.rag_query,playbooks:a.rag_playbooks}],
+      ['Plan',a.plan_result||{summary:a.plan_summary,steps:a.steps_count,raw_markdown:a.raw_markdown}],
+    ];
+    for(const[title,data]of sections){
+      h+=`<h5 onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">${esc(title)}</h5><pre style="display:block">${esc(JSON.stringify(data,null,2))}</pre>`;
+    }
+    h+='</div></td>';det.innerHTML=h;
+  }catch(e){det.innerHTML='<td colspan="7"><div class="row-detail">Error: '+e.message+'</div></td>'}
+}
+</script>
+</body>
+</html>

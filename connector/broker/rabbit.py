@@ -50,10 +50,10 @@ class RabbitConsumer:
         self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
 
     async def consume(self, callback) -> None:
-        if not self.channel:
-            await self.connect()
-        if not self.queue:
-            self.queue = await self.channel.declare_queue(self.queue_name, durable=True)
+        self.connection = None
+        self.channel = None
+        self.queue = None
+        await self.connect()
         async with self.queue.iterator() as queue_iter:
             async for message in queue_iter:
                 async with message.process():

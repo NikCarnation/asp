@@ -14,7 +14,7 @@
 │       │                         ┌──────────────────────────┘        │
 │       │                         │                                    │
 │       │                    ┌────▼──────┐  ┌──────────────────┐      │
-│       │                    │ Categoriz │  │   RAG + Chroma   │      │
+│       │                    │ Categoriz        │                    │   RAG + VectorStore│      │
 │       │                    │ (Small LLM)│  │   VectorStore    │      │
 │       │                    └────┬──────┘  └────────┬─────────┘      │
 │       │                         │                  │                │
@@ -32,7 +32,7 @@
 | **Connector** | FastAPI + httpx | 8000 | Шлюз к SIEM: получает, нормализует, отправляет в очередь |
 | **RabbitMQ** | aio-pika | 5672 | Брокер сообщений для буферизации |
 | **Agent** | FastAPI + LangGraph | 8001 | Категоризация → RAG → генерация плана |
-| **Chroma** | chromadb | 8002 | Векторная БД для поиска плейбуков |
+| **Chroma** | langchain_chroma (local) | — | Векторная БД (локальный SQLite, встроена в Agent) |
 | **Ollama / Cloud LLM** | OpenAI API | 11434 / внешний | LLM сервер (локальный или облачный) |
 
 ### Поток данных
@@ -179,7 +179,7 @@ agent/
 │   └── schemas.py           # NormalizedAlert, IncidentCategory, PlanStep, AnalysisPlan
 └── rag/
     ├── knowledge_base.py    # Загрузка плейбуков из knowledge/*.md
-    └── vector_store.py      # ChromaDB клиент
+    └── vector_store.py      # Векторное хранилище (langchain_chroma + OllamaEmbeddings)
 ```
 
 ### 3.3. LangGraph pipeline (`agent/agent.py`)
@@ -254,9 +254,9 @@ POST /api/v1/playbooks/reload → перезагрузить плейбуки в
 | `LLM_API_KEY` | *(пусто)* | API-ключ (пустой для Ollama) |
 | `SMALL_LLM_MODEL` | `gemma2:2b` | Модель для категоризации |
 | `LARGE_LLM_MODEL` | `gemma2:2b` | Модель для планов |
-| `CHROMA_HOST` | `localhost` | Хост Chroma |
-| `CHROMA_PORT` | `8002` | Порт Chroma API (внешний) |
+| `CHROMA_PERSIST_DIR` | `./chroma_data` | Директория для локального Chroma |
 | `CHROMA_COLLECTION` | `aisoc_playbooks` | Имя коллекции |
+| `EMBEDDING_MODEL` | `nomic-embed-text` | Модель эмбеддингов (через Ollama) |
 | `AGENT_HOST` | `0.0.0.0` | Хост FastAPI |
 | `AGENT_PORT` | `8001` | Порт FastAPI |
 | `VERBOSE` | `true` | Логирование этапов в терминал |
@@ -395,7 +395,7 @@ class Playbook(BaseModel):
 ### 6.1. Предварительные требования
 
 - Python 3.12+
-- Docker (для RabbitMQ и Chroma) — или запущенные вручную сервисы
+- Docker (для RabbitMQ) — или запущенный вручную RabbitMQ
 - LLM: Ollama с моделями или API-ключ облачного провайдера
 
 ### 6.2. Установка зависимостей
@@ -437,8 +437,8 @@ USE_RABBITMQ=true
 VERBOSE=true
 
 # Chroma
-CHROMA_HOST=localhost
-CHROMA_PORT=8002
+CHROMA_PERSIST_DIR=./chroma_data
+EMBEDDING_MODEL=nomic-embed-text
 ```
 
 ### 6.4. Запуск зависимостей (Docker)
@@ -446,9 +446,6 @@ CHROMA_PORT=8002
 ```bash
 # RabbitMQ
 docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
-
-# Chroma
-docker run -d --name chroma -p 8002:8000 chromadb/chroma:latest
 ```
 
 ### 6.5. Запуск Ollama
@@ -486,7 +483,7 @@ uvicorn agent.main:app --host 127.0.0.1 --port 8001 --reload
 docker compose up --build
 ```
 
-Поднимает 5 сервисов: rabbitmq, ollama, chroma, connector, agent.
+Поднимает 4 сервиса: rabbitmq, ollama, connector, agent.
 
 ---
 
@@ -581,10 +578,7 @@ services:
     environment: [OLLAMA_HOST: ${OLLAMA_HOST}]
     entrypoint: [/bin/sh, /scripts/ollama-init.sh]
     command: [${SMALL_LLM_MODEL}, ${LARGE_LLM_MODEL}]
-
-  chroma:
-    image: chromadb/chroma:latest
-    ports: ["8002:8000"]
+    # nomic-embed-text скачивается автоматически в ollama-init.sh
 
   connector:
     build: {context: ., dockerfile: Dockerfile.connector}
@@ -594,12 +588,14 @@ services:
   agent:
     build: {context: ., dockerfile: Dockerfile.agent}
     ports: ["8001:8001"]
-    depends_on: [rabbitmq, ollama, chroma]
+    depends_on: [rabbitmq, ollama]
     environment:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-}
       SMALL_LLM_MODEL: ${SMALL_LLM_MODEL}
       LARGE_LLM_MODEL: ${LARGE_LLM_MODEL}
+      CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chroma_data}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
 ```
 
 Запуск:
@@ -706,7 +702,7 @@ image: ollama/ollama:0.5.4
 | `agent/config.py` | 27 | Конфигурация агента |
 | `agent/models/schemas.py` | 50 | Модели данных |
 | `agent/rag/knowledge_base.py` | 34 | Загрузка плейбуков из knowledge/*.md |
-| `agent/rag/vector_store.py` | 76 | ChromaDB клиент |
+| `agent/rag/vector_store.py` | 145 | Векторное хранилище (langchain_chroma) |
 | `connector/main.py` | 264 | FastAPI + эндпоинты |
 | `connector/config.py` | 31 | Конфигурация коннектора |
 | `connector/broker/rabbit.py` | 67 | RabbitMQ publisher/consumer |
@@ -718,5 +714,7 @@ image: ollama/ollama:0.5.4
 | `knowledge/*.md` | ~27 | Плейбуки (6 шт.) |
 | `.env` | 40 | Конфигурация окружения |
 | `docker-compose.yml` | 103 | Оркестрация контейнеров |
-| `requirements.txt` | 16 | Python зависимости |
+| `requirements.txt` | 19 | Python зависимости (полные) |
+| `requirements-base.txt` | 7 | Python зависимости (connector) |
+| `requirements-agent.txt` | 9 | Python зависимости (agent) |
 | `main.py` | 54 | Точка входа (AISOC_MODE) |

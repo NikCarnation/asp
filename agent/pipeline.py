@@ -7,7 +7,7 @@ from agent.models.schemas import AnalysisPlan, NormalizedAlert
 from agent.planner import Planner
 from agent.rag.vector_store import VectorStore
 
-SEP = "═" * 60
+SEP = "\u2550" * 60
 
 
 class AgentPipeline:
@@ -32,25 +32,29 @@ class AgentPipeline:
             "plan": None,
         })
         plan = result["plan"]
+        cat = result.get("category")
+        pbs = result.get("playbooks", [])
         duration = time.monotonic() - t0
 
         if self.verbose:
             print(f"\n{SEP}")
-            print(f"  TOTAL: {plan.alert_id} — {plan.incident_category}")
-            print(f"  ⏱  {duration:.1f}s total")
+            print(f"  TOTAL: {plan.alert_id} \u2014 {plan.incident_category}")
+            print(f"  \u23f1  {duration:.1f}s total")
             print(f"{SEP}\n")
 
         if self.db_path:
-            cat = result.get("category")
-            pbs = result.get("playbooks", [])
             try:
                 save_analysis(
                     self.db_path,
                     alert_id=alert.event_id,
+                    raw_alert=alert.raw if alert.raw else None,
+                    normalized_alert=alert.model_dump(mode="json"),
                     category=cat.category if cat else "unknown",
                     confidence=cat.confidence if cat else 0.0,
                     category_description=cat.description if cat else "",
-                    playbook_titles=[pb.title for pb in pbs],
+                    rag_query=f"category={cat.category if cat else 'unknown'}, rule={alert.rule_name}",
+                    rag_playbooks=[pb.title for pb in pbs],
+                    plan_result=plan.model_dump(mode="json"),
                     plan_summary=plan.summary,
                     steps_count=len(plan.steps),
                     raw_markdown=plan.raw_markdown,

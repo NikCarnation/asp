@@ -2,7 +2,10 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+from agent.db import count_analyses, get_analyses, get_analysis_by_id
 
 from agent.categorizer import Categorizer
 from agent.config import AgentConfig
@@ -52,13 +55,21 @@ async def lifespan(app: FastAPI):
     )
 
     vector_store = VectorStore(
-        host=config.chroma_host,
-        port=config.chroma_port,
+        persist_dir=config.chroma_persist_dir,
         collection_name=config.chroma_collection,
+        ollama_base_url=config.llm_base_url,
+        embedding_model=config.embedding_model,
     )
-
     if vector_store.count() == 0:
-        vector_store.add_playbooks(ALL_PLAYBOOKS)
+        for attempt in range(30):
+            try:
+                vector_store.add_playbooks(ALL_PLAYBOOKS)
+                break
+            except Exception as e:
+                logger.warning("Embedding model not ready (attempt %d/30): %s", attempt + 1, e)
+                await asyncio.sleep(2)
+        else:
+            logger.error("Failed to index playbooks after 30 attempts")
 
     pipeline = AgentPipeline(
         categorizer=categorizer,
@@ -75,14 +86,32 @@ async def lifespan(app: FastAPI):
         password=config.rabbitmq_pass,
         queue=config.rabbitmq_queue,
     )
-    asyncio.create_task(consumer.consume(handle_alert))
+
+    async def run_consumer():
+        while True:
+            try:
+                await consumer.connect()
+                await consumer.consume(handle_alert)
+            except Exception as e:
+                logger.warning("Consumer error: %s, retry in 5s", e)
+                await asyncio.sleep(5)
+
+    task = asyncio.create_task(run_consumer())
 
     yield
 
+    task.cancel()
     await consumer.close()
 
 
 app = FastAPI(title="AISOC Agent", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -127,3 +156,18 @@ async def reload_playbooks():
     vector_store.reset()
     vector_store.add_playbooks(ALL_PLAYBOOKS)
     return {"status": "ok", "count": vector_store.count()}
+
+
+@app.get("/api/v1/analyses")
+async def list_analyses(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
+    items = get_analyses(config.db_path, limit=limit, offset=offset)
+    total = count_analyses(config.db_path)
+    return {"analyses": items, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/v1/analyses/{analysis_id}")
+async def get_analysis(analysis_id: int):
+    item = get_analysis_by_id(config.db_path, analysis_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return item

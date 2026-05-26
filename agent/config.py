@@ -13,9 +13,9 @@ class AgentConfig(BaseSettings):
     small_llm_model: str = ""
     large_llm_model: str = ""
 
-    chroma_host: str = "localhost"
-    chroma_port: int = 8002
+    chroma_persist_dir: str = "./chroma_data"
     chroma_collection: str = "aisoc_playbooks"
+    embedding_model: str = "nomic-embed-text"
 
     agent_host: str = "0.0.0.0"
     agent_port: int = 8001

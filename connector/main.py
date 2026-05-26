@@ -1,8 +1,12 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, Response
 from agent.models.schemas import NormalizedAlert
 from connector.broker.rabbit import RabbitPublisher
 from connector.config import ConnectorConfig
@@ -60,12 +64,54 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AISOC Connector", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(webhook_router)
+
+
+_ui_path = Path(__file__).resolve().parent / "ui" / "index.html"
+_ui_html = _ui_path.read_text(encoding="utf-8") if _ui_path.exists() else "<h1>UI not found</h1>"
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+
+@app.get("/")
+async def ui_root():
+    return HTMLResponse(content=_ui_html, headers={"Connection": "close"})
+
+
+@app.get("/ui")
+async def ui_root_alt():
+    return await ui_root()
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "module": "connector"}
+
+
+@app.get("/health/rabbitmq")
+async def health_rabbitmq():
+    if not rabbit_publisher:
+        return {"status": "disabled", "module": "rabbitmq"}
+    try:
+        conn = rabbit_publisher.connection
+        if conn and not conn.is_closed:
+            return {"status": "ok", "module": "rabbitmq"}
+        await asyncio.wait_for(rabbit_publisher.connect(), timeout=3.0)
+        return {"status": "ok", "module": "rabbitmq"}
+    except asyncio.TimeoutError:
+        return {"status": "error", "module": "rabbitmq", "detail": "timeout"}
+    except Exception as e:
+        return {"status": "error", "module": "rabbitmq", "detail": str(e)}
 
 
 @app.get("/api/v1/alerts")

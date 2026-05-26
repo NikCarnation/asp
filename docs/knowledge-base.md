@@ -5,15 +5,15 @@
 Модуль базы знаний обеспечивает агентную систему релевантной информацией для анализа инцидентов. Он реализует подход **RAG (Retrieval-Augmented Generation)**: при поступлении алерта система ищет в векторной базе данных плейбуки, соответствующие типу инцидента, и передаёт их Large Language Model для формирования плана анализа.
 
 ```
-Categorizer ──► VectorStore.search() ──► Planner
+Categorizer ──► VectorStore.search(category, rule, message) ──► Planner
                     │
                     ▼
-              Chroma DB
-           (коллекция плейбуков)
+          Chroma (langchain_chroma)
+       локальное SQLite-хранилище
                     ▲
                     │
-              Индексация
-           ALL_PLAYBOOKS (6 шт.)
+               Индексация
+      ALL_PLAYBOOKS → разбивка на чанки → эмбеддинги (Ollama)
 ```
 
 ---
@@ -52,12 +52,12 @@ def _load_playbooks() -> list[Playbook]:
 
 | Категория | Плейбук | Содержание |
 |-----------|---------|------------|
-| `brute-force` | Brute Force Attack Response | Проверка репутации IP, блокировка, сброс паролей, команды `grep`, `journalctl` |
-| `web-exploit` | Web Application Exploit Response | Анализ логов веб-сервера, проверка веб-шеллов, команды `tail`, `find`, `lsof` |
-| `malware` | Malware Infection Response | Изоляция хоста, анализ процессов и персистентности, команды `wmic`, `netstat`, `schtasks` |
-| `reconnaissance` | Reconnaissance / Port Scan Response | Верификация сканирования, корреляция с IDS, `tcpdump`, `ss` |
-| `unauthorized-access` | Unauthorized Access Response | Проверка логов доступа, компрометация учётных данных, `last`, `ausearch` |
-| `policy-violation` | Policy Violation Response | Проверка нарушения политик, DLP, оповещение менеджера |
+| `brute-force` | Brute Force Attack Response | Проверка репутации IP, блокировка, сброс паролей |
+| `web-exploit` | Web Application Exploit Response | Анализ логов, проверка веб-шеллов |
+| `malware` | Malware Infection Response | Изоляция хоста, анализ процессов |
+| `reconnaissance` | Reconnaissance / Port Scan Response | Верификация сканирования, корреляция с IDS |
+| `unauthorized-access` | Unauthorized Access Response | Проверка логов, компрометация учётных данных |
+| `policy-violation` | Policy Violation Response | Проверка нарушения политик, DLP |
 
 Каждый плейбук содержит 5 секций:
 1. **Initial Triage / Verification** — первичная проверка
@@ -74,91 +74,112 @@ CATEGORY_PLAYBOOK_MAP: dict[str, Playbook] = {
 }
 ```
 
-Этот маппинг используется как fallback, когда VectorStore пуст или поиск не дал результатов.
+Этот маппинг используется как fallback, когда векторное хранилище пусто или поиск не дал результатов.
 
 ---
 
 ### 2. Векторное хранилище (VectorStore)
 
-`agent/rag/vector_store.py` — класс `VectorStore`, клиент для работы с Chroma DB.
+`agent/rag/vector_store.py` — класс `VectorStore`, построенный на `langchain_chroma.Chroma` с локальным SQLite-хранилищем. **Не требует отдельного Docker-контейнера.**
 
 **Подключение:**
 
 ```python
 class VectorStore:
-    def __init__(self, host, port, collection_name):
-        self.client = chromadb.HttpClient(host=host, port=port)
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name
+    def __init__(self, persist_dir, collection_name, ollama_base_url, embedding_model):
+        # OllamaEmbeddings — эмбеддинги через Ollama API
+        self._embeddings = OllamaEmbeddings(
+            model=embedding_model,        # nomic-embed-text
+            base_url=ollama_base_url,
+        )
+        # Локальное Chroma-хранилище (SQLite на диске)
+        self._store = Chroma(
+            collection_name=collection_name,
+            embedding_function=self._embeddings,
+            persist_directory=persist_dir,
         )
 ```
 
-Используется HTTP-клиент Chroma (подключается к серверу `chromadb/chroma:latest` в Docker).
+**Разбивка на чанки (chunking):**
 
-**Методы:**
+Перед индексацией каждый плейбук разбивается на семантические чанки:
 
-| Метод | Описание |
-|-------|----------|
-| `add_playbook(pb)` | Добавить один плейбук в коллекцию |
-| `add_playbooks(pbs)` | Добавить список плейбуков (batch) |
-| `search(category, query, n_results)` | Поиск по категории и тексту |
-| `count()` | Количество документов в коллекции |
-| `reset()` | Удалить и пересоздать коллекцию |
-
-**Добавление плейбуков:**
+1. **MarkdownHeaderTextSplitter** — разделяет по заголовкам `#`, `##`, `###`, сохраняя контекст
+2. **RecursiveCharacterTextSplitter** — дробит длинные секции (более 2000 символов) на чанки по 1500 токенов с перекрытием 200
 
 ```python
-def add_playbooks(self, playbooks: list[Playbook]):
-    docs = []    # содержимое плейбуков (текст Markdown)
-    metas = []   # метаданные: title, category, source
-    ids = []     # UUID для каждого документа
-
-    for pb in playbooks:
-        docs.append(pb.content)
-        metas.append({"title": pb.title, "category": pb.category, "source": pb.source})
-        ids.append(str(uuid.uuid4()))
-
-    self.collection.add(documents=docs, metadatas=metas, ids=ids)
+def _chunk_playbook(self, pb: Playbook) -> list[Document]:
+    md_chunks = self._md_splitter.split_text(pb.content)
+    for chunk in md_chunks:
+        header_ctx = build_header_context(chunk.metadata)
+        enriched = f"{header_ctx}\n\n{chunk.page_content}"
+        # если всё ещё длинный — ещё один проход сплиттера
+        if len(enriched) > 2000:
+            sub_chunks = self._text_splitter.split_text(enriched)
 ```
 
-- Каждый плейбук — отдельный документ в Chroma
-- Метаданные: `title`, `category`, `source`
-- ID — случайный UUID
+Каждый чанк сохраняется с метаданными: `title`, `category`, `source`, а также заголовки (`h1`, `h2`, `h3`).
 
-**Поиск:**
+**Поиск (MMR):**
+
+Используется `max_marginal_relevance_search` — поиск по максимальной маргинальной релевантности, который обеспечивает **разнообразие результатов**:
 
 ```python
-def search(self, category, query="", n_results=3) -> list[Playbook]:
-    results = self.collection.query(
-        query_texts=[search_query],    # текст запроса
-        n_results=n_results,            # количество результатов
-        where={"category": category} if category != "unknown" else None,
+def search(self, category, query="", n_results=5, alert_message="") -> list[Playbook]:
+    # Обогащённый запрос: категория + правило + текст алерта
+    rich_query = f"category: {category} | {query} | {alert_message[:300]}"
+
+    # MMR: баланс между релевантностью и разнообразием
+    docs = self._store.max_marginal_relevance_search(
+        rich_query,
+        k=n_results,
+        fetch_k=n_results * 3,   # кандидатов в 3 раза больше
+        filter={"category": category} if category != "unknown" else None,
     )
 ```
 
+- `k=5` — возвращается до 5 чанков
+- `fetch_k=15` — из 15 кандидатов выбираются 5 самых релевантных и разнообразных
 - Фильтрация по `category` через `where`
-- Поиск по тексту (semantic search через эмбеддинги Chroma)
-- Возвращает до `n_results` (по умолчанию 3) плейбуков
 
 **Ленивая инициализация:**
 
-В `agent/main.py` при старте проверяется `vector_store.count()`. Если коллекция пуста — загружаются все 6 плейбуков:
+В `agent/main.py` при старте проверяется `vector_store.count()`. Если коллекция пуста — загружаются все плейбуки с разбивкой на чанки:
 
 ```python
 if vector_store.count() == 0:
-    vector_store.add_playbooks(ALL_PLAYBOOKS)
+    for attempt in range(30):
+        try:
+            vector_store.add_playbooks(ALL_PLAYBOOKS)
+            break
+        except Exception:
+            await asyncio.sleep(2)  # ждём, пока Ollama скачает модель эмбеддингов
 ```
 
 ---
 
-### 3. Интеграция в пайплайн
+### 3. Эмбеддинги через Ollama
+
+В отличие от предыдущей версии (встроенная модель Chroma `all-MiniLM-L6-v2`), эмбеддинги теперь создаются через **Ollama API** с моделью `nomic-embed-text`.
+
+**Преимущества:**
+- **Мультиязычность** — `nomic-embed-text` работает и с русским, и с английским текстом
+- **Единый сервис** — не нужен отдельный контейнер для эмбеддингов, используется тот же Ollama
+- **Гибкость** — модель можно заменить через `EMBEDDING_MODEL` в `.env`
+
+Модель `nomic-embed-text` автоматически скачивается в `ollama-init.sh` при старте Docker Compose.
+
+---
+
+### 4. Интеграция в пайплайн
 
 **Шаг 2 в `AgentPipeline.process()`:**
 
 ```python
 playbooks = self.vector_store.search(
-    category=category.category,  # например "brute-force"
-    query=alert.rule_name,       # например "SSH Brute Force Attack"
+    category=category.category,   # "brute-force"
+    query=alert.rule_name,        # "SSH Brute Force Attack"
+    alert_message=alert.message,  # "Failed password for root from 10.0.0.5"
 )
 
 # Fallback на CATEGORY_PLAYBOOK_MAP
@@ -171,17 +192,17 @@ elif not playbooks:
 ```
 
 Три уровня поиска:
-1. **Chroma DB** — semantic search по категории
-2. **CATEGORY_PLAYBOOK_MAP** — fallback если Chroma пуста
+1. **VectorStore (Chroma + MMR)** — семантический поиск по обогащённому запросу
+2. **CATEGORY_PLAYBOOK_MAP** — fallback если хранилище пусто
 3. **Поиск по "unknown"** — если нет плейбука для данной категории
 
-Плейбуки передаются в `Planner.create_plan()`, который формирует финальный план.
+Найденные чанки передаются в `Planner.create_plan()`, который формирует финальный план.
 
 ---
 
 ## Markdown-файлы базы знаний
 
-Директория `knowledge/` содержит Markdown-файлы плейбуков. **Именно они являются источником данных** — `knowledge_base.py` читает их при запуске:
+Директория `knowledge/` содержит Markdown-файлы плейбуков:
 
 ```
 knowledge/
@@ -190,7 +211,8 @@ knowledge/
 ├── malware.md
 ├── reconnaissance.md
 ├── unauthorized-access.md
-└── policy-violation.md
+├── policy-violation.md
+└── Подбор пароля от SSH.md
 ```
 
 Чтобы изменить или добавить плейбук:
@@ -206,9 +228,8 @@ knowledge/
 
 | Компонент | Технология | Версия |
 |-----------|-----------|--------|
-| Векторная БД | Chroma DB | latest (Docker) |
-| Клиент | chromadb (Python) | ≥0.5.0 |
-| Эмбеддинги | Встроенные в Chroma (all-MiniLM-L6-v2) | — |
-| HTTP-порт | 8000 (внутри Docker), 8002 (наружу) | — |
-
-Chroma использует встроенную модель эмбеддингов `all-MiniLM-L6-v2` для преобразования текста плейбуков в векторные представления. Это не требует отдельного API ключа или сервера эмбеддингов.
+| Векторная БД | Chroma (langchain_chroma) | ≥0.2.0 |
+| Хранилище | Локальный SQLite (файл) | — |
+| Эмбеддинги | OllamaEmbeddings (nomic-embed-text) | через Ollama |
+| Разбивка текста | MarkdownHeaderTextSplitter + RecursiveCharacterTextSplitter | langchain-text-splitters |
+| Поиск | MMR (Max Marginal Relevance) | langchain-chroma |

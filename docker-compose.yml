@@ -5,8 +5,8 @@ services:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: guest
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
@@ -18,23 +18,23 @@ services:
       - ollama_data:/root/.ollama
       - ./scripts/ollama-init.sh:/scripts/ollama-init.sh
     environment:
-      OLLAMA_HOST: ${OLLAMA_HOST}
+      OLLAMA_HOST: 0.0.0.0
+      NVIDIA_VISIBLE_DEVICES: all
     entrypoint:
       - /bin/sh
       - /scripts/ollama-init.sh
     command:
       - ${SMALL_LLM_MODEL}
       - ${LARGE_LLM_MODEL}
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    # Блок deploy нужен для работы ollama с gpu от nvidia. Если оставить блок закомментированным, то будет использоваться только процессор
 
-
-  chroma:
-    image: chromadb/chroma:latest
-    ports:
-      - "8002:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-    environment:
-      IS_PERSISTENT: ${IS_PERSISTENT}
 
   connector:
     build:
@@ -50,8 +50,8 @@ services:
     environment:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: ${RABBITMQ_PORT}
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: guest
       RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
       CONNECTOR_HOST: 0.0.0.0
       CONNECTOR_PORT: 8000
@@ -74,23 +74,22 @@ services:
     depends_on:
       - rabbitmq
       - ollama
-      - chroma
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: ${RABBITMQ_PORT}
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: guest
       RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-}
       SMALL_LLM_MODEL: ${SMALL_LLM_MODEL}
       LARGE_LLM_MODEL: ${LARGE_LLM_MODEL}
-      CHROMA_HOST: chroma
-      CHROMA_PORT: "8000"
-      CHROMA_COLLECTION: ${CHROMA_COLLECTION}
+      CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/app/chroma_data}
+      CHROMA_COLLECTION: ${CHROMA_COLLECTION:-aisoc_playbooks}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
       AGENT_HOST: 0.0.0.0
       AGENT_PORT: 8001
       WAZUH_API_URL: ${WAZUH_API_URL}
@@ -100,4 +99,3 @@ services:
 volumes:
   rabbitmq_data:
   ollama_data:
-  chroma_data:

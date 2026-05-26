@@ -1,19 +1,4 @@
-# Развёртывание и конфигурация AISOC
-
-## Требования
-
-### Минимальные
-- **CPU**: 4+ ядер (рекомендуется 8)
-- **RAM**: 8+ ГБ (из них ~4 ГБ для Ollama с gemma2:2b)
-- **Диск**: 10+ ГБ свободного места
-- **Docker** и **Docker Compose** (рекомендуется)
-- **Python 3.12+** (для локального запуска)
-
-### Опционально
-- **GPU** (NVIDIA) — для ускорения инференса LLM через Ollama
-- **NVIDIA Container Toolkit** — для проброса GPU в Docker
-
----
+# Развёртывание и конфигурация
 
 ## Запуск через Docker Compose
 
@@ -39,28 +24,29 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Будут запущены 5 контейнеров:
+Будут запущены 4 контейнера:
 
 | Сервис | Порт (внешний) | Зависимости |
 |--------|---------------|-------------|
 | RabbitMQ | 5672, 15672 | — |
 | Ollama | 11434 | — |
-| Chroma | 8002 | — |
 | Connector | 8000 | RabbitMQ |
-| Agent | 8001 | RabbitMQ, Ollama, Chroma |
+| Agent | 8001 | RabbitMQ, Ollama |
 
 ### 4. Инициализация моделей Ollama
 
-При первом запуске Ollama автоматически скачает модели, указанные в `SMALL_LLM_MODEL` и `LARGE_LLM_MODEL`. Это может занять несколько минут.
+При первом запуске Ollama автоматически скачает модели, указанные в `SMALL_LLM_MODEL`, `LARGE_LLM_MODEL` и модель эмбеддингов `nomic-embed-text`. Это может занять несколько минут.
 
 Если нужно скачать модели вручную:
 
 ```bash
 # Установить модели внутри контейнера
 docker exec -it aisoc-ollama-1 ollama pull gemma2:2b
+docker exec -it aisoc-ollama-1 ollama pull nomic-embed-text
 
 # Или через API
 curl http://localhost:11434/api/pull -d '{"name": "gemma2:2b"}'
+curl http://localhost:11434/api/pull -d '{"name": "nomic-embed-text"}'
 ```
 
 ### 5. Проверка работоспособности
@@ -77,9 +63,9 @@ curl http://localhost:8001/health
 # RabbitMQ Management UI
 # http://localhost:15672 (guest/guest)
 
-# Chroma (REST API)
-curl http://localhost:8002/api/v1/heartbeat
-# → {"nanosecond heartbeat": ...}
+# Плейбуки (проверка индексации)
+curl http://localhost:8001/api/v1/playbooks
+# → {"playbooks": [...]}
 ```
 
 ---
@@ -111,26 +97,21 @@ docker run -d --name rabbitmq \
 docker run -d --name ollama \
   -p 11434:11434 \
   ollama/ollama:latest
-
-# Chroma
-docker run -d --name chroma \
-  -p 8002:8000 \
-  chromadb/chroma:latest
 ```
 
 **Вариант B — всё через Docker Compose:**
 
 ```bash
 # Поднять только инфраструктуру (без connector/agent)
-docker compose up rabbitmq ollama chroma
+docker compose up rabbitmq ollama
 ```
 
 **Вариант C — облачная LLM (без Ollama):**
 
 Установите в `.env`:
 ```env
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=sk-your-key-here
+LLM_BASE_URL=
+LLM_API_KEY=
 ```
 
 В этом случае Ollama не требуется.
@@ -199,15 +180,17 @@ LARGE_LLM_MODEL=anthropic/claude-3.5-sonnet
 
 Никаких изменений кода не требуется — всё настраивается через `.env`.
 
-#### Chroma (Vector DB)
+#### Chroma (Vector DB, локальное хранилище)
+
+Chroma работает **внутри процесса агента** с локальным SQLite-хранилищем — отдельный Docker-контейнер не требуется.
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
-| `CHROMA_HOST` | localhost | Хост Chroma |
-| `CHROMA_PORT` | 8002 | Порт Chroma API (внутренний 8000, внешний 8002) |
+| `CHROMA_PERSIST_DIR` | ./chroma_data | Директория для локального Chroma |
 | `CHROMA_COLLECTION` | aisoc_playbooks | Имя коллекции |
+| `EMBEDDING_MODEL` | nomic-embed-text | Модель эмбеддингов (через Ollama) |
 
-**Примечание:** В `docker-compose.yml` Chroma пробрасывается как `8002:8000` (внешний порт 8002 → внутренний 8000 контейнера). При локальном запуске указывайте `CHROMA_PORT=8002`.
+**Примечание:** Для эмбеддингов используется `OllamaEmbeddings` — модель `nomic-embed-text` должна быть скачана в Ollama. При Docker Compose она скачивается автоматически через `ollama-init.sh`.
 
 #### Wazuh (SIEM)
 
@@ -218,15 +201,17 @@ LARGE_LLM_MODEL=anthropic/claude-3.5-sonnet
 | `WAZUH_API_PASS` | wazuh-wui | Пароль |
 | `USE_RABBITMQ` | false | Включить RabbitMQ (ставьте `true` для полного пайплайна) |
 
-**Внимание:** `WAZUH_MOCK` больше не используется. Для работы без реального Wazuh просто оставьте переменные Wazuh пустыми — `IndexerClient` будет работать в режиме заглушки.
+**Внимание:** Для работы без реального Wazuh просто оставьте переменные Wazuh пустыми — `IndexerClient` будет работать в режиме заглушки.
+
+Инструкцию по развертыванию смотри в документации: https://documentation.wazuh.com/current/deployment-options/docker/wazuh-container.html
 
 #### Сервисы
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
-| `CONNECTOR_HOST` | 0.0.0.0 | Хост Connector |
+| `CONNECTOR_HOST` | localhost | Хост Connector |
 | `CONNECTOR_PORT` | 8000 | Порт Connector |
-| `AGENT_HOST` | 0.0.0.0 | Хост Agent |
+| `AGENT_HOST` | localhost | Хост Agent |
 | `AGENT_PORT` | 8001 | Порт Agent |
 
 ### Пример `.env`
@@ -245,18 +230,20 @@ RABBITMQ_USER=guest
 RABBITMQ_PASS=guest
 RABBITMQ_QUEUE=aisoc_alerts
 
-# Chroma
-CHROMA_HOST=localhost
-CHROMA_PORT=8002
+# Chroma (локальное хранилище)
+CHROMA_PERSIST_DIR=./chroma_data
 CHROMA_COLLECTION=aisoc_playbooks
 
+# Эмбеддинги
+EMBEDDING_MODEL=nomic-embed-text
+
 # Connector
-CONNECTOR_HOST=0.0.0.0
+CONNECTOR_HOST=localhost
 CONNECTOR_PORT=8000
 USE_RABBITMQ=true
 
 # Agent
-AGENT_HOST=0.0.0.0
+AGENT_HOST=localhost
 AGENT_PORT=8001
 VERBOSE=true
 
@@ -275,8 +262,8 @@ WAZUH_API_PASS=changeme
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-base.txt .
+RUN pip install --no-cache-dir --default-timeout=300 --retries=10 -r requirements-base.txt
 COPY . .
 EXPOSE 8000
 CMD ["uvicorn", "connector.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -287,8 +274,8 @@ CMD ["uvicorn", "connector.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-base.txt requirements-agent.txt ./
+RUN pip install --no-cache-dir --default-timeout=300 --retries=10 -r requirements-agent.txt
 COPY . .
 EXPOSE 8001
 CMD ["uvicorn", "agent.main:app", "--host", "0.0.0.0", "--port", "8001"]
@@ -320,10 +307,10 @@ curl -X POST "http://localhost:8001/api/v1/process" \
 ```bash
 # Убедитесь, что USE_RABBITMQ=true и RabbitMQ запущен
 
-# Опубликовать mock-алерт в очередь
+# Опубликовать mock-алерт в очередь (алерт из SIEM)
 curl -X POST "http://localhost:8000/api/v1/publish" \
   -H "Content-Type: application/json" \
-  -d '{"alert_id": "test-001"}'
+  -d '{"alert_id": "test-001"}' 
 
 # Получить список алертов
 curl "http://localhost:8000/api/v1/alerts"
@@ -375,8 +362,7 @@ python scripts/add_alert.py --rule-name "SSH Brute Force" --level 10
 3. Настройте вебхук в Wazuh Dashboard:
    - Configuration → Integration → Webhook
    - URL: `http://<connector-host>:8000/webhook/wazuh`
-   - Правила: выберите уровни (например ≥ 7)
-4. Планы анализа будут отправляться через `POST /security/alerts/context`
+4. Планы анализа будут отправляться через `POST /security/alerts/context` (пока не реализовано)
 
 ---
 
@@ -389,7 +375,6 @@ python scripts/add_alert.py --rule-name "SSH Brute Force" --level 10
 | 11434 | Ollama | LLM API (OpenAI-совместимый) |
 | 8000 | Connector | FastAPI |
 | 8001 | Agent | FastAPI |
-| 8002 | Chroma | Vector DB API (внешний) |
 | 55000 | Wazuh | Wazuh API (внешний) |
 
 ---
@@ -400,7 +385,6 @@ python scripts/add_alert.py --rule-name "SSH Brute Force" --level 10
 |--------|--------|-------------------|
 | `rabbitmq_data` | RabbitMQ | `/var/lib/rabbitmq` |
 | `ollama_data` | Ollama | `/root/.ollama` |
-| `chroma_data` | Chroma | `/chroma/chroma` |
 
 ---
 
