@@ -203,6 +203,26 @@ Chroma работает **внутри процесса агента** с лок
 
 **Внимание:** Для работы без реального Wazuh просто оставьте переменные Wazuh пустыми — `IndexerClient` будет работать в режиме заглушки.
 
+#### Agent Indexer (OpenSearch)
+
+| Переменная | По умолчанию | Описание |
+|-----------|-------------|----------|
+| `INDEXER_URL` | https://localhost:9200 | URL OpenSearch (Wazuh Indexer) |
+| `INDEXER_USER` | admin | Пользователь Indexer |
+| `INDEXER_PASS` | *(пусто)* | Пароль Indexer |
+| `INDEXER_PREFIX` | aisoc-analysis- | Префикс индекса для результатов анализа |
+| `INDEXER_VERIFY_SSL` | false | Отключить проверку SSL |
+
+#### Agent Indexer (OpenSearch)
+
+| Переменная | По умолчанию | Описание |
+|-----------|-------------|----------|
+| `INDEXER_URL` | https://localhost:9200 | URL OpenSearch (Wazuh Indexer) |
+| `INDEXER_USER` | admin | Пользователь Indexer |
+| `INDEXER_PASS` | *(пусто)* | Пароль Indexer |
+| `INDEXER_PREFIX` | aisoc-analysis- | Префикс индекса для результатов анализа |
+| `INDEXER_VERIFY_SSL` | false | Отключить проверку SSL |
+
 Инструкцию по развертыванию смотри в документации: https://documentation.wazuh.com/current/deployment-options/docker/wazuh-container.html
 
 #### Сервисы
@@ -251,6 +271,20 @@ VERBOSE=true
 WAZUH_API_URL=https://localhost:55000
 WAZUH_API_USER=wazuh-wui
 WAZUH_API_PASS=changeme
+
+# Agent Indexer (OpenSearch)
+INDEXER_URL=https://localhost:9200
+INDEXER_USER=admin
+INDEXER_PASS=changeme
+INDEXER_PREFIX=aisoc-analysis-
+INDEXER_VERIFY_SSL=false
+
+# Agent Indexer (OpenSearch)
+INDEXER_URL=https://localhost:9200
+INDEXER_USER=admin
+INDEXER_PASS=changeme
+INDEXER_PREFIX=aisoc-analysis-
+INDEXER_VERIFY_SSL=false
 ```
 
 ---

@@ -2,7 +2,7 @@
 
 BASE_URL=http://localhost:8000
 
-# echo "=== 1. Wazuh Webhook — SSH Brute Force ==="
+# echo "=== 1. Wazuh Webhook ??? SSH Brute Force ==="
 # curl -s -X POST "$BASE_URL/webhook/wazuh" \
 #   -H "Content-Type: application/json" \
 #   -d '{
@@ -27,7 +27,7 @@ BASE_URL=http://localhost:8000
 #   }'
 # echo
 
-# echo "=== 2. Generic Webhook — SQL Injection (web-exploit) ==="
+# echo "=== 2. Generic Webhook ??? SQL Injection (web-exploit) ==="
 # curl -s -X POST "$BASE_URL/webhook/generic" \
 #   -H "Content-Type: application/json" \
 #   -d '{
@@ -43,7 +43,7 @@ BASE_URL=http://localhost:8000
 #   }'
 # echo
 
-# echo "=== 3. Generic Webhook — Malware Detected (malware) ==="
+# echo "=== 3. Generic Webhook ??? Malware Detected (malware) ==="
 # curl -s -X POST "$BASE_URL/webhook/generic" \
 #   -H "Content-Type: application/json" \
 #   -d '{
@@ -61,7 +61,7 @@ BASE_URL=http://localhost:8000
 #   }'
 # echo
 
-# echo "=== 4. Generic Webhook — Port Scan (reconnaissance) ==="
+# echo "=== 4. Generic Webhook ??? Port Scan (reconnaissance) ==="
 # curl -s -X POST "$BASE_URL/webhook/generic" \
 #   -H "Content-Type: application/json" \
 #   -d '{
@@ -77,7 +77,7 @@ BASE_URL=http://localhost:8000
 #   }'
 # echo
 
-# echo "=== 5. Generic Webhook — Unauthorized Access ==="
+# echo "=== 5. Generic Webhook ??? Unauthorized Access ==="
 # curl -s -X POST "$BASE_URL/webhook/generic" \
 #   -H "Content-Type: application/json" \
 #   -d '{
@@ -92,7 +92,7 @@ BASE_URL=http://localhost:8000
 #   }'
 # echo
 
-# echo "=== 6. Generic Webhook — Data Exfiltration ==="
+# echo "=== 6. Generic Webhook ??? Data Exfiltration ==="
 # curl -s -X POST "$BASE_URL/webhook/generic" \
 #   -H "Content-Type: application/json" \
 #   -d '{
@@ -107,11 +107,11 @@ BASE_URL=http://localhost:8000
 #     "user_name": "svc_backup",
 #     "process_name": "curl",
 #     "network_protocol": "tcp",
-#     "message": "500 MB uploaded to 185.220.101.15 via HTTPS by svc_backup — exceeds 50 MB daily baseline"
+#     "message": "500 MB uploaded to 185.220.101.15 via HTTPS by svc_backup ??? exceeds 50 MB daily baseline"
 #   }'
 # echo
 
-echo "=== 7. Wazuh Webhook — Malware (wazuh format) ==="
+echo "=== 7. Wazuh Webhook ??? Malware (wazuh format) ==="
 curl -s -X POST "$BASE_URL/webhook/wazuh" \
   -H "Content-Type: application/json" \
   -d '{
@@ -128,12 +128,12 @@ curl -s -X POST "$BASE_URL/webhook/wazuh" \
       "srcip": "10.0.0.50",
       "dstip": "10.0.0.51",
       "user": "svc_web",
-      "full_log": "FIM alert: /var/www/html/backdoor.php created — SHA256 matches known webshell signature"
+      "full_log": "FIM alert: /var/www/html/backdoor.php created ??? SHA256 matches known webshell signature"
     }
   }'
 echo
 
-# echo "=== 8. Wazuh Webhook — Web Exploit (wazuh format) ==="
+# echo "=== 8. Wazuh Webhook ??? Web Exploit (wazuh format) ==="
 # curl -s -X POST "$BASE_URL/webhook/wazuh" \
 #   -H "Content-Type: application/json" \
 #   -d '{
@@ -151,9 +151,9 @@ echo
 #       "dstip": "10.0.0.10",
 #       "dstport": 80,
 #       "protocol": "tcp",
-#       "full_log": "HTTP request: GET /index.php?page=../../etc/passwd — LFI pattern detected"
+#       "full_log": "HTTP request: GET /index.php?page=../../etc/passwd ??? LFI pattern detected"
 #     }
 #   }'
 # echo
 
-# echo "=== Done — 8 test alerts sent ==="
+# echo "=== Done ??? 8 test alerts sent ==="

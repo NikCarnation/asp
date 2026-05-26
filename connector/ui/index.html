@@ -65,6 +65,7 @@ tr:hover{background:var(--surface)}
     <button class="btn" onclick="sendTestWebhook()">Test Webhook</button>
     <button class="btn" onclick="fetchAlerts()">Fetch Alerts</button>
     <button class="btn" onclick="listPlaybooks()">Playbooks</button>
+    <button class="btn" onclick="ensureIndex()">Ensure Index</button>
   </div>
   <div class="cards" id="health-cards">
     <div class="card"><h4>Connector</h4><div class="val muted">click "Check Health"</div></div>
@@ -72,6 +73,7 @@ tr:hover{background:var(--surface)}
     <div class="card"><h4>RabbitMQ</h4><div class="val muted">click "Check Health"</div></div>
     <div class="card"><h4>Ollama</h4><div class="val muted">click "Check Health"</div></div>
     <div class="card"><h4>Knowledge Base</h4><div class="val muted">click "Check Health"</div></div>
+    <div class="card"><h4>Indexer</h4><div class="val muted">click "Check Health"</div></div>
   </div>
   <h2>Quick Links</h2>
   <div class="links">
@@ -79,6 +81,9 @@ tr:hover{background:var(--surface)}
     <a href="http://localhost:8001/docs" target="_blank">Agent API</a>
     <a href="http://localhost:15672" target="_blank">RabbitMQ</a>
     <a href="https://host.docker.internal:55000" target="_blank">Wazuh</a>
+    <a href="https://localhost:443" target="_blank">Wazuh Dashboard</a>
+    <a href="https://localhost:443/app/dev_tools#/console" target="_blank">OpenSearch Console</a>
+    <a href="https://localhost:9200/aisoc-analysis-*/_search" target="_blank">AISOC Index (raw)</a>
   </div>
 </div>
 
@@ -142,6 +147,7 @@ async function checkHealth(){
     {lbl:'RabbitMQ',url:C+'/health/rabbitmq',fmt:d=>d.status},
     {lbl:'Ollama',url:A+'/health',fmt:d=>'OK '+(d.small_llm||'')},
     {lbl:'Knowledge Base',url:A+'/api/v1/playbooks',fmt:d=>'OK ('+(d.playbooks||[]).length+' playbooks)'},
+    {lbl:'Indexer',url:A+'/api/v1/indexer/status',fmt:d=>d.status},
   ];
   for(const[i,item]of items.entries()){
     cards.querySelector(`.card:nth-child(${i+1}) .val`).textContent='checking…';
@@ -167,6 +173,9 @@ async function fetchAlerts(){
 }
 async function listPlaybooks(){
   try{const r=await fetchTO(A+'/api/v1/playbooks');const d=await r.json();toast(r.ok?'Playbooks: '+(d.playbooks||[]).length:'Error: '+(d.detail||r.status),r.ok)}catch(e){toast('Error: '+e.message,false)}
+}
+async function ensureIndex(){
+  try{const r=await fetchTO(A+'/api/v1/indexer/ensure-index',{method:'POST'});const d=await r.json();toast(r.ok?'Index OK: '+d.index:'Error: '+(d.detail||r.status),r.ok)}catch(e){toast('Error: '+e.message,false)}
 }
 async function sendReq(){
   const res=$('console-res');res.style.display='block';res.innerHTML='<span class="muted">sending…</span>';

@@ -9,6 +9,7 @@ from agent.db import count_analyses, get_analyses, get_analysis_by_id
 
 from agent.categorizer import Categorizer
 from agent.config import AgentConfig
+from agent.indexer_client import AgentIndexerClient
 from agent.models.schemas import NormalizedAlert
 from agent.pipeline import AgentPipeline
 from agent.planner import Planner
@@ -24,6 +25,7 @@ categorizer: Categorizer | None = None
 planner: Planner | None = None
 vector_store: VectorStore | None = None
 pipeline: AgentPipeline | None = None
+indexer_client: AgentIndexerClient | None = None
 
 
 async def handle_alert(alert: NormalizedAlert):
@@ -40,7 +42,7 @@ async def handle_alert(alert: NormalizedAlert):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global categorizer, planner, vector_store, pipeline
+    global categorizer, planner, vector_store, pipeline, indexer_client
 
     categorizer = Categorizer(
         base_url=config.llm_base_url,
@@ -71,11 +73,25 @@ async def lifespan(app: FastAPI):
         else:
             logger.error("Failed to index playbooks after 30 attempts")
 
+    indexer_client = AgentIndexerClient(
+        url=config.indexer_url,
+        user=config.indexer_user,
+        password=config.indexer_pass,
+        index_prefix=config.indexer_prefix,
+        verify_ssl=config.indexer_verify_ssl,
+    )
+
+    try:
+        await indexer_client.ensure_index()
+    except Exception as e:
+        logger.warning("Failed to ensure indexer index at startup: %s", e)
+
     pipeline = AgentPipeline(
         categorizer=categorizer,
         planner=planner,
         vector_store=vector_store,
         db_path=config.db_path,
+        indexer_client=indexer_client,
         verbose=config.verbose,
     )
 
@@ -102,6 +118,8 @@ async def lifespan(app: FastAPI):
 
     task.cancel()
     await consumer.close()
+    if indexer_client:
+        await indexer_client.close()
 
 
 app = FastAPI(title="AISOC Agent", lifespan=lifespan)
@@ -116,12 +134,20 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
+    indexer_status = "unknown"
+    if indexer_client:
+        try:
+            ok = await indexer_client.ensure_index()
+            indexer_status = "ok" if ok else "error"
+        except Exception:
+            indexer_status = "error"
     return {
         "status": "ok",
         "module": "agent",
         "playbooks_count": vector_store.count() if vector_store else 0,
         "small_llm": config.small_llm_model,
         "large_llm": config.large_llm_model,
+        "indexer": indexer_status,
     }
 
 
@@ -171,3 +197,31 @@ async def get_analysis(analysis_id: int):
     if not item:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return item
+
+
+@app.post("/api/v1/indexer/ensure-index")
+async def ensure_indexer_index():
+    if not indexer_client:
+        raise HTTPException(status_code=503, detail="Indexer client not initialized")
+    try:
+        ok = await indexer_client.ensure_index()
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to create index")
+        return {"status": "ok", "index": indexer_client._daily_index()}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/v1/indexer/status")
+async def indexer_status():
+    if not indexer_client:
+        return {"status": "not_initialized"}
+    try:
+        ok = await indexer_client.ensure_index()
+        return {
+            "status": "ok" if ok else "error",
+            "index": indexer_client._daily_index(),
+            "url": config.indexer_url,
+        }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}

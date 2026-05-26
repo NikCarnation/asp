@@ -20,20 +20,20 @@ services:
     environment:
       OLLAMA_HOST: 0.0.0.0
       NVIDIA_VISIBLE_DEVICES: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     entrypoint:
       - /bin/sh
       - /scripts/ollama-init.sh
     command:
+    
       - ${SMALL_LLM_MODEL}
       - ${LARGE_LLM_MODEL}
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-    # Блок deploy нужен для работы ollama с gpu от nvidia. Если оставить блок закомментированным, то будет использоваться только процессор
 
 
   connector:
@@ -56,7 +56,6 @@ services:
       CONNECTOR_HOST: 0.0.0.0
       CONNECTOR_PORT: 8000
       USE_RABBITMQ: "true"
-      # Wazuh services are on the host, not in this compose
       WAZUH_API_URL: https://host.docker.internal:55000
       WAZUH_API_USER: ${WAZUH_API_USER}
       WAZUH_API_PASS: ${WAZUH_API_PASS}
@@ -96,6 +95,11 @@ services:
       WAZUH_API_USER: ${WAZUH_API_USER}
       WAZUH_API_PASS: ${WAZUH_API_PASS}
 
+      INDEXER_URL: https://host.docker.internal:9200
+      INDEXER_USER: ${INDEXER_USER}
+      INDEXER_PASS: ${INDEXER_PASS}
+      INDEXER_PREFIX: ${INDEXER_PREFIX}
+      INDEXER_VERIFY_SSL: false
 volumes:
   rabbitmq_data:
   ollama_data:

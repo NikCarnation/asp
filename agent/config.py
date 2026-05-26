@@ -22,6 +22,12 @@ class AgentConfig(BaseSettings):
 
     db_path: str = "data/analyses.db"
 
+    indexer_url: str = "https://localhost:9200"
+    indexer_user: str = "admin"
+    indexer_pass: str = ""
+    indexer_prefix: str = "aisoc-analysis-"
+    indexer_verify_ssl: bool = False
+
     verbose: bool = True
 
     model_config = {"env_file": ".env", "extra": "ignore"}

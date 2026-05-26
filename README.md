@@ -82,6 +82,10 @@ ollama pull gemma2:2b
 | POST | `/api/v1/process` | Обработать алерт (из тела запроса) |
 | GET | `/api/v1/playbooks` | Список загруженных плейбуков |
 | POST | `/api/v1/playbooks/reload` | Перезагрузить плейбуки |
+| POST | `/api/v1/indexer/ensure-index` | Создать/проверить индекс в OpenSearch |
+| GET | `/api/v1/indexer/status` | Статус подключения к OpenSearch |
+| POST | `/api/v1/indexer/ensure-index` | Создать/проверить индекс в OpenSearch |
+| GET | `/api/v1/indexer/status` | Статус подключения к OpenSearch |
 
 ## Тестирование
 
@@ -131,6 +135,16 @@ curl -X POST "http://localhost:8000/api/v1/publish" \
 | `RABBITMQ_QUEUE` | aisoc_alerts | Имя очереди |
 | `CHROMA_PERSIST_DIR` | ./chroma_data | Директория локального Chroma |
 | `EMBEDDING_MODEL` | nomic-embed-text | Модель эмбеддингов (Ollama) |
+| `INDEXER_URL` | https://localhost:9200 | URL OpenSearch (Wazuh Indexer) |
+| `INDEXER_USER` | admin | Пользователь Indexer |
+| `INDEXER_PASS` | *(пусто)* | Пароль Indexer |
+| `INDEXER_PREFIX` | aisoc-analysis- | Префикс индекса анализа |
+| `INDEXER_VERIFY_SSL` | false | Отключить проверку SSL |
+| `INDEXER_URL` | https://localhost:9200 | URL OpenSearch (Wazuh Indexer) |
+| `INDEXER_USER` | admin | Пользователь Indexer |
+| `INDEXER_PASS` | *(пусто)* | Пароль Indexer |
+| `INDEXER_PREFIX` | aisoc-analysis- | Префикс индекса анализа |
+| `INDEXER_VERIFY_SSL` | false | Отключить проверку SSL |
 
 Для использования облачного провайдера (OpenAI, OpenRouter) достаточно изменить 4 переменные:
 
@@ -162,3 +176,45 @@ LARGE_LLM_MODEL=
 Для подключения к реальному Wazuh настройте переменные `WAZUH_API_URL`, `WAZUH_API_USER`, `WAZUH_API_PASS` в `.env`. Планы анализа будут отправляться через Wazuh API.
 
 Подробнее — [docs/connector-architecture.md](docs/connector-architecture.md).
+
+## Интеграция с OpenSearch (Wazuh Indexer)
+
+Результаты работы Agent (категоризация + план) автоматически отправляются в OpenSearch
+в индекс `aisoc-analysis-YYYY.MM.DD`. Для настройки укажите в `.env`:
+
+```env
+INDEXER_URL=https://localhost:9200
+INDEXER_USER=admin
+INDEXER_PASS=your_password
+INDEXER_PREFIX=aisoc-analysis-
+INDEXER_VERIFY_SSL=false
+```
+
+**Создание индекса:**
+```bash
+curl -X POST http://localhost:8001/api/v1/indexer/ensure-index
+```
+
+После создания индекс `aisoc-analysis-*` можно добавить как источник данных в Wazuh Dashboard
+(Stack Management → Index Patterns → `aisoc-analysis-*`).
+
+## Интеграция с OpenSearch (Wazuh Indexer)
+
+Результаты работы Agent (категоризация + план) автоматически отправляются в OpenSearch
+в индекс `aisoc-analysis-YYYY.MM.DD`. Для настройки укажите в `.env`:
+
+```env
+INDEXER_URL=https://localhost:9200
+INDEXER_USER=admin
+INDEXER_PASS=your_password
+INDEXER_PREFIX=aisoc-analysis-
+INDEXER_VERIFY_SSL=false
+```
+
+**Создание индекса:**
+```bash
+curl -X POST http://localhost:8001/api/v1/indexer/ensure-index
+```
+
+После создания индекс `aisoc-analysis-*` можно добавить как источник данных в Wazuh Dashboard
+(Stack Management → Index Patterns → `aisoc-analysis-*`).

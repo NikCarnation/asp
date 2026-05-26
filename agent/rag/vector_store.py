@@ -4,6 +4,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+import os
 
 from agent.rag.knowledge_base import Playbook
 
@@ -12,9 +13,9 @@ class VectorStore:
     def __init__(
         self,
         persist_dir: str,
-        collection_name: str = "aisoc_playbooks",
+        collection_name: str = os.getenv("CHROMA_COLLECTION"),
         ollama_base_url: str = "http://localhost:11434",
-        embedding_model: str = "nomic-embed-text",
+        embedding_model: str = os.getenv("EMBEDDING_MODEL"),
     ):
         self._persist_dir = persist_dir
         Path(persist_dir).mkdir(parents=True, exist_ok=True)
